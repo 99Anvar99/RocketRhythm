@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Release" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="RocketRhythm.vcxproj" Id="d66f3f4f-591a-43c1-8f63-6c8475c4f439" />
+</Solution>
