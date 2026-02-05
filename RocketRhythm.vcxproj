@@ -93,10 +93,9 @@
       <Command>powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File update_version.ps1 "./version.h"</Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Command>set OUTDIR=C:\Users\anvar\AppData\Roaming\bakkesmod\bakkesmod\plugins
+      <Command>set OUTDIR=%APPDATA%\bakkesmod\bakkesmod\plugins
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
-copy /Y "$(TargetPath)" "%OUTDIR%\$(TargetFileName)"
-</Command>
+copy /Y "$(TargetPath)" "%OUTDIR%\$(TargetFileName)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

@@ -1,0 +1,165 @@
+# Build outputs
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.vcxproj.filters
+*.opensdf
+*.sdf
+*.db
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+
+# Compiled binaries
+*.dll
+*.exe
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.ipch
+
+# BakkesMod specific
+bakkesmod/
+bakkesmod.log
+*.bakmod
+
+# Plugin cache and temp files
+*.cache
+*.temp
+*.tmp
+temp/
+cache/
+album_cache/  # Album art cache directory
+config.json   # User config file (if you want users to regenerate)
+
+# IDE files
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Package files
+packages/
+*.nupkg
+*.pak
+
+# Dependencies (if using package managers)
+packages/
+dependencies/
+
+# Backup files
+*.bak
+*.backup
+
+# Log files
+*.log
+logs/
+debug.log
+
+# User-specific files
+.userprefs
+*.userprefs
+
+# Visual Studio Code
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# CMake build directories
+build/
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+Makefile
+
+# ReSharper
+_ReSharper.*/
+*.resharper
+*.resharper.user
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Mac files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux files
+*~
+
+# Backup files
+*.bak
+
+# Output directories
+out/
+dist/
+release/
+
+# Test files
+*.test
+TestResults/
+
+# Visual Studio auto-generated files
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esult*/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NuGet Packages
+*.nupkg
+*.snupkg
+nuget.exe
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Mac desktop service store files
+.DS_Store?
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear on external disks
+.Spotlight-V100
+.Trashes
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Custom directories/files (add your project-specific ones)
+# These are from your code:
+/RocketRhythm/album_cache/   # Album art cache
+/RocketRhythm/config.json    # User configuration
