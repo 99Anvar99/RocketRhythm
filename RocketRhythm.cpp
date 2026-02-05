@@ -163,6 +163,7 @@ void RocketRhythm::LoadAlbumArt(const std::string& path)
         albumArtLoaded = false;
         albumArtTexture = nullptr;
         currentAlbumArtPath.clear();
+        LOG("Error: {}", e.what());
     }
 }
 
@@ -213,15 +214,15 @@ void RocketRhythm::UpdateTextScroll(float deltaTime)
     }
     
     // Update all scrolling texts
-    for (auto& [key, state] : scrollStates)
+    for (auto& [offset, textWidth, needsScrolling] : scrollStates | std::views::values)
     {
-        if (state.needsScrolling)
+        if (needsScrolling)
         {
-            state.offset += scrollSpeed * deltaTime;
+            offset += scrollSpeed * deltaTime;
             // If we've scrolled past the text plus a pause, reset
-            if (state.offset > state.textWidth + 100.0f)
+            if (offset > textWidth + 100.0f)
             {
-                state.offset = -60.0f;
+                offset = -60.0f;
             }
         }
     }
