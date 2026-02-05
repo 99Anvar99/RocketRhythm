@@ -11,7 +11,8 @@
     <ProjectGuid>{d66f3f4f-591a-43c1-8f63-6c8475c4f439}</ProjectGuid>
     <RootNamespace>RocketRhythm</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-  </PropertyGroup>
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+</PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
