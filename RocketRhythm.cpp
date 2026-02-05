@@ -10,6 +10,8 @@
 #include "notification.h"
 #include "IMGUI/imgui_internal.h"
 #include "version.h"
+#include <Windows.h>
+#include <shellapi.h>
 
 std::shared_ptr<CVarManagerWrapper> _globalCvarManager = nullptr;
 
@@ -684,7 +686,7 @@ void RocketRhythm::RenderSettings()
     
     if (ImGui::Button("View On GitHub"))
     {
-        // Open Github
+        ShellExecuteA(nullptr, "open", "https://github.com/99Anvar99/RocketRhythm", nullptr, nullptr, SW_SHOWNORMAL);
     }
     
     ImGui::PopFont();
