@@ -6,12 +6,12 @@
 #include <ShlObj.h>
 #include <Windows.h>
 #include <cmath>
-#include "json.hpp"
 #include "notification.h"
 #include "IMGUI/imgui_internal.h"
 #include "version.h"
 #include <Windows.h>
 #include <shellapi.h>
+#include <nlohmann/json.hpp>
 
 std::shared_ptr<CVarManagerWrapper> _globalCvarManager = nullptr;
 
