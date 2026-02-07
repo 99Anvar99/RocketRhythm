@@ -76,6 +76,8 @@ class RocketRhythm : public BakkesMod::Plugin::BakkesModPlugin, public SettingsW
 		float maxScale = 2.0f;
 	} windowStyle;
 
+	ImVector<ImWchar> mergedGlyphRanges;
+
 	const std::string& GetMenuNameCached();
 	const std::string& GetPluginNameCached();
 	void DrawHelpMarker(const char* desc);

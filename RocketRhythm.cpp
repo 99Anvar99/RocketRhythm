@@ -85,35 +85,125 @@ void RocketRhythm::onUnload()
 }
 
 // ---------------------------
-
-static const ImWchar ranges[] = {
-    // Basic Latin + Latin-1 Supplement + Cyrillic
-    0x0020, 0x00FF,
-    0x0100, 0x017F,
-    0x0180, 0x024F,
-    0x0400, 0x04FF,
-    0x0500, 0x052F,
-    0 // Terminator
-};
-
 void RocketRhythm::InitializeFont()
 {
     ImGuiIO& io = ImGui::GetIO();
-    PWSTR pathToFonts = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &pathToFonts)))
+
+    ImFontGlyphRangesBuilder builder;
+
+    std::vector ranges =
     {
-        std::filesystem::path font_path = pathToFonts;
-        std::filesystem::path regular_path = font_path / "segoeui.ttf";
-        if (std::filesystem::exists(regular_path))
-        {
-            ImFontConfig font_config;
-            font_config.PixelSnapH = true;
-            // Base font size (will be scaled dynamically in RenderWindow)
-            customFontSegoeUI = io.Fonts->AddFontFromFileTTF(regular_path.string().c_str(), 24.0f, &font_config, ranges);
-            customSettingsFontUI = io.Fonts->AddFontFromFileTTF(regular_path.string().c_str(), 16.0f, &font_config, ranges);
-        }
-        CoTaskMemFree(pathToFonts);
+        io.Fonts->GetGlyphRangesDefault(),
+        io.Fonts->GetGlyphRangesCyrillic(),
+        io.Fonts->GetGlyphRangesJapanese(),
+        io.Fonts->GetGlyphRangesChineseSimplifiedCommon(),
+        io.Fonts->GetGlyphRangesKorean(),
+        io.Fonts->GetGlyphRangesThai()
+    };
+
+    for (size_t i = 0; i < ranges.size(); ++i)
+    {
+        builder.AddRanges(ranges[i]);
+        LOG("Adding glyph range {} to font!", i);
     }
+
+    builder.BuildRanges(&mergedGlyphRanges);
+    LOG("Building {} GlyphRanges!", ranges.size());
+
+    PWSTR pathToFonts = nullptr;
+
+    if (!SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &pathToFonts)))
+        return;
+
+    std::filesystem::path fontsPath = pathToFonts;
+    CoTaskMemFree(pathToFonts);
+
+    std::filesystem::path segoePath = fontsPath / "segoeui.ttf";
+
+    if (!std::filesystem::exists(segoePath))
+        return;
+
+    ImFontConfig baseConfig{};
+    baseConfig.PixelSnapH = true;
+    baseConfig.OversampleH = 2;
+    baseConfig.OversampleV = 2;
+
+    customFontSegoeUI = io.Fonts->AddFontFromFileTTF(
+        segoePath.string().c_str(),
+        24.0f,
+        &baseConfig,
+        mergedGlyphRanges.Data
+    );
+
+    customSettingsFontUI = io.Fonts->AddFontFromFileTTF(
+        segoePath.string().c_str(),
+        16.0f,
+        &baseConfig,
+        mergedGlyphRanges.Data
+    );
+
+    ImFontConfig mergeConfig{};
+    mergeConfig.MergeMode = true;
+    mergeConfig.PixelSnapH = true;
+
+    // Chinese fallback (Microsoft YaHei)
+    std::filesystem::path chinesePath = fontsPath / "msyh.ttc";
+    if (std::filesystem::exists(chinesePath))
+    {
+        io.Fonts->AddFontFromFileTTF(
+            chinesePath.string().c_str(),
+            24.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+
+        io.Fonts->AddFontFromFileTTF(
+            chinesePath.string().c_str(),
+            16.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+    }
+
+    // Japanese fallback (Meiryo)
+    std::filesystem::path japanesePath = fontsPath / "meiryo.ttc";
+    if (std::filesystem::exists(japanesePath))
+    {
+        io.Fonts->AddFontFromFileTTF(
+            japanesePath.string().c_str(),
+            24.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+
+        io.Fonts->AddFontFromFileTTF(
+            japanesePath.string().c_str(),
+            16.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+    }
+
+    // Korean fallback (Malgun Gothic)
+    std::filesystem::path koreanPath = fontsPath / "malgun.ttf";
+    if (std::filesystem::exists(koreanPath))
+    {
+        io.Fonts->AddFontFromFileTTF(
+            koreanPath.string().c_str(),
+            24.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+
+        io.Fonts->AddFontFromFileTTF(
+            koreanPath.string().c_str(),
+            16.0f,
+            &mergeConfig,
+            mergedGlyphRanges.Data
+        );
+    }
+
+    io.Fonts->Build();
 }
 
 // ---------------------------
