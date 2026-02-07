@@ -163,3 +163,14 @@ Temporary Items
 # These are from your code:
 /RocketRhythm/album_cache/   # Album art cache
 /RocketRhythm/config.json    # User configuration
+
+# vcpkg installed packages
+vcpkg_installed/
+
+# Optional: vcpkg build artifacts
+vcpkg/buildtrees/
+vcpkg/packages/
+vcpkg/downloads/
+
+# Optional: vcpkg user/local cache
+.vcpkg-root/

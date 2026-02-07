@@ -13,7 +13,7 @@
 #include <shellapi.h>
 #include <nlohmann/json.hpp>
 
-std::shared_ptr<CVarManagerWrapper> _globalCvarManager = nullptr;
+std::shared_ptr<CVarManagerWrapper> _globalCvarManager;
 
 const auto plugin_version = std::string(stringify(VERSION_MAJOR)) + "." + stringify(VERSION_MINOR) + "." + stringify(VERSION_PATCH) + "." + stringify(VERSION_BUILD);
 const std::string CONFIG_FILE_NAME = "config.json";
@@ -50,9 +50,7 @@ static bool IsValidImageFile(const std::string& path)
 // ---------------------------
 
 RocketRhythm::RocketRhythm()
-    : lastProgressUpdate(std::chrono::steady_clock::now()),
-      lastPositionSec(0),
-      interpolatedPositionSec(0) {}
+    : lastProgressUpdate(std::chrono::steady_clock::now()) {}
 
 RocketRhythm::~RocketRhythm() = default;
 
@@ -60,26 +58,21 @@ RocketRhythm::~RocketRhythm() = default;
 
 void RocketRhythm::onLoad()
 {
-    try
-    {
-        enabled = std::make_shared<bool>(true);
-        uiScaleCVar = std::make_shared<float>(1.0f);
-        media = CreateMediaController(gameWrapper->GetDataFolder().string());
-        
-        cvarManager->registerCvar("rr_enabled", "1", "Enable RocketRhythm").bindTo(enabled);
-        cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f)
-            .bindTo(uiScaleCVar);
-        
-        LoadConfig();
-        InitializeFont();
-        gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
-        
-        LOG("{} v{} loaded!", PLUGIN_NAME_STR, plugin_version);
-    }
-    catch (const std::exception& e)
-    {
-        LOG("Error in onLoad: {}", e.what());
-    }
+    _globalCvarManager = cvarManager;
+    media = CreateMediaController(gameWrapper->GetDataFolder().string());
+
+    enabled = std::make_shared<bool>(true);
+    uiScaleCVar = std::make_shared<float>(1.0f);
+
+    cvarManager->registerCvar("rr_enabled", "1", "Enable RocketRhythm").bindTo(enabled);
+    cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).bindTo(uiScaleCVar);
+
+    LoadConfig();
+    InitializeFont();
+
+    gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
+
+    LOG("{} v{} loaded!", PLUGIN_NAME_STR, plugin_version);
 }
 
 void RocketRhythm::onUnload()
@@ -116,12 +109,9 @@ void RocketRhythm::InitializeFont()
             ImFontConfig font_config;
             font_config.PixelSnapH = true;
             // Base font size (will be scaled dynamically in RenderWindow)
-            customFontSegoeUI = io.Fonts->AddFontFromFileTTF(
-                regular_path.string().c_str(), 24.0f, &font_config, ranges);
-            customSettingsFontUI = io.Fonts->AddFontFromFileTTF(
-                regular_path.string().c_str(), 16.0f, &font_config, ranges);
+            customFontSegoeUI = io.Fonts->AddFontFromFileTTF(regular_path.string().c_str(), 24.0f, &font_config, ranges);
+            customSettingsFontUI = io.Fonts->AddFontFromFileTTF(regular_path.string().c_str(), 16.0f, &font_config, ranges);
         }
-        io.Fonts->Build();
         CoTaskMemFree(pathToFonts);
     }
 }
