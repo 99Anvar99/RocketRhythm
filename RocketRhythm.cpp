@@ -78,7 +78,7 @@ void RocketRhythm::onLoad()
 void RocketRhythm::onUnload()
 {
     SaveConfig();
-    albumArtTexture = nullptr;
+    albumArtTexture.reset();
     cvarManager->removeCvar("rr_enabled");
     cvarManager->removeCvar("rr_uiscale");
     LOG("{} unloaded!", PLUGIN_NAME_STR);
@@ -207,26 +207,26 @@ void RocketRhythm::InitializeFont()
 }
 
 // ---------------------------
-
 void RocketRhythm::LoadAlbumArt(const std::string& path)
 {
-    // Check if we need to load new album art
-    if (currentAlbumArtPath == path && albumArtLoaded && albumArtTexture)
-    {
-        return; // Already loaded
-    }
-
     if (path.empty() || !IsValidImageFile(path))
     {
         albumArtLoaded = false;
-        albumArtTexture = nullptr;
+        albumArtTexture.reset();
         currentAlbumArtPath.clear();
+        return;
+    }
+
+    if (albumArtLoaded && albumArtTexture && currentAlbumArtPath == path)
+    {
         return;
     }
 
     try
     {
+        albumArtTexture.reset();
         albumArtTexture = std::make_shared<ImageWrapper>(path, false, true);
+
         if (albumArtTexture)
         {
             albumArtLoaded = true;
@@ -241,69 +241,60 @@ void RocketRhythm::LoadAlbumArt(const std::string& path)
     catch (const std::exception& e)
     {
         albumArtLoaded = false;
-        albumArtTexture = nullptr;
+        albumArtTexture.reset();
         currentAlbumArtPath.clear();
-        LOG("Error: {}", e.what());
+        LOG("Album art load error: {}", e.what());
     }
 }
 
 // ---------------------------
-
 int RocketRhythm::GetCurrentDisplayPosition()
 {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastProgressUpdate).count();
-    
-    // Reset when song changes or position jumps
-    static int lastMediaPosition = -1;
-    static int lastDuration = -1;
-    if (mediaState.positionSec != lastMediaPosition || mediaState.durationSec != lastDuration)
+    const auto now = std::chrono::steady_clock::now();
+
+    // Track identity
+    const std::string songKey = mediaState.title + "|" + mediaState.artist + "|" + mediaState.album;
+
+    // Re-anchor when track changes or when the reported position changes (i.e., we received a real update)
+    if (songKey != lastInterpSongKey || mediaState.positionSec != lastPositionSec)
     {
+        lastInterpSongKey = songKey;
+        lastPositionSec = mediaState.positionSec;
         interpolatedPositionSec = mediaState.positionSec;
-        lastMediaPosition = mediaState.positionSec;
-        lastDuration = mediaState.durationSec;
-        lastProgressUpdate = now;
+        lastProgressUpdate = now; // anchor time for interpolation
     }
-    
-    // If playing, interpolate between updates
-    if (mediaState.isPlaying && mediaState.durationSec > 0)
+
+    if (!mediaState.isPlaying || mediaState.durationSec <= 0)
     {
-        interpolatedPositionSec = mediaState.positionSec + static_cast<int>(elapsed / 1000);
-        interpolatedPositionSec = min(interpolatedPositionSec, mediaState.durationSec);
+        return std::clamp(mediaState.positionSec, 0, mediaState.durationSec > 0 ? mediaState.durationSec : 0);
     }
-    else
-    {
-        interpolatedPositionSec = mediaState.positionSec;
-    }
-    
-    return interpolatedPositionSec;
+
+    const auto elapsedSec = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastProgressUpdate).count() / 1000;
+
+    const int predicted = interpolatedPositionSec + static_cast<int>(elapsedSec);
+    return std::clamp(predicted, 0, mediaState.durationSec);
 }
 
 // ---------------------------
 
 void RocketRhythm::UpdateTextScroll(float deltaTime)
 {
-    // Create song hash to detect changes
-    std::string newSongHash = mediaState.title + "|" + mediaState.artist + "|" + mediaState.album;
-    
-    // Reset scroll states if song changed
+    const std::string newSongHash = mediaState.title + "|" + mediaState.artist + "|" + mediaState.album;
+
     if (newSongHash != currentSongHash)
     {
         scrollStates.clear();
         currentSongHash = newSongHash;
     }
-    
-    // Update all scrolling texts
-    for (auto& [offset, textWidth, needsScrolling] : scrollStates | std::views::values)
+
+    for (auto& st : std::views::values(scrollStates))
     {
-        if (needsScrolling)
+        if (!st.needsScrolling) continue;
+
+        st.offset += scrollSpeed * deltaTime;
+        if (st.offset > st.textWidth + 100.0f)
         {
-            offset += scrollSpeed * deltaTime;
-            // If we've scrolled past the text plus a pause, reset
-            if (offset > textWidth + 100.0f)
-            {
-                offset = -60.0f;
-            }
+            st.offset = -60.0f;
         }
     }
 }
@@ -381,48 +372,29 @@ float RocketRhythm::GetDPIScaleFactor()
 float RocketRhythm::CalculateAutoScaleFactor()
 {
     ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    
-    // Base resolution is 1920x1080
-    float baseWidth = 1920.0f;
-    float baseHeight = 1080.0f;
-    
-    // Calculate scale based on height (most consistent)
-    float heightRatio = displaySize.y / baseHeight;
-    float widthRatio = displaySize.x / baseWidth;
-    
-    // Use the smaller ratio to ensure UI fits
-    float resolutionScale = min(heightRatio, widthRatio);
-    
-    // Get DPI scaling
-    float dpiScale = GetDPIScaleFactor();
-    
-    // Combine resolution and DPI scaling
+
+    constexpr float baseWidth = 1920.0f;
+    constexpr float baseHeight = 1080.0f;
+
+    const float heightRatio = displaySize.y / baseHeight;
+    const float widthRatio = displaySize.x / baseWidth;
+
+    const float resolutionScale = std::min(heightRatio, widthRatio);
+    const float dpiScale = GetDPIScaleFactor();
+
     float autoScale = resolutionScale * dpiScale;
-    
-    // Apply user-defined limits
-    autoScale = max(windowStyle.minScale, min(autoScale, windowStyle.maxScale));
-    
+    autoScale = std::clamp(autoScale, windowStyle.minScale, windowStyle.maxScale);
     return autoScale;
 }
 
 float RocketRhythm::GetEffectiveScaleFactor()
 {
-    // Sync UI scale from CVar
     windowStyle.uiScale = *uiScaleCVar;
-    float scaleFactor = 1.0f;
-    
-    if (windowStyle.enableAutoScaling)
-    {
-        scaleFactor = CalculateAutoScaleFactor();
-    }
-    
-    // Apply manual UI scale on top of auto-scaling
+
+    float scaleFactor = windowStyle.enableAutoScaling ? CalculateAutoScaleFactor() : 1.0f;
     scaleFactor *= windowStyle.uiScale;
-    
-    // Apply absolute limits to prevent extreme scaling
-    scaleFactor = max(0.5f, min(scaleFactor, 3.0f));
-    
-    return scaleFactor;
+
+    return std::clamp(scaleFactor, 0.5f, 3.0f);
 }
 
 float RocketRhythm::GetScaledValue(float baseValue)
@@ -484,9 +456,8 @@ void RocketRhythm::DrawAlbumArtWithScale(float scale)
         {
             ImGui::Image(texture_id, ImVec2(size, size));
             ImU32 border_color = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
-            draw_list->AddRect(pos, ImVec2(pos.x + size, pos.y + size),
-                border_color, windowStyle.albumArtRounding * scale, 0, 1.0f);
-            ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + (15.0f * scale), 0));
+            draw_list->AddRect(pos, ImVec2(pos.x + size, pos.y + size), border_color, windowStyle.albumArtRounding * scale, 0, 1.0f);
+            ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + 15.0f * scale, 0));
             return;
         }
     }
@@ -506,7 +477,7 @@ void RocketRhythm::DrawAlbumArt()
     float baseWindowWidth = windowStyle.showAlbumArt ?
         windowStyle.albumArtSize + 15.0f + 235.0f + 15.0f : 360.0f;
     float dynamicScale = currentWindowSize.x / baseWindowWidth;
-    dynamicScale = max(0.5f, min(dynamicScale, 3.0f));
+    dynamicScale = std::max(0.5f, std::min(dynamicScale, 3.0f));
     
     DrawAlbumArtWithScale(dynamicScale);
 }
@@ -800,7 +771,7 @@ void RocketRhythm::RenderWindow()
     if (windowStyle.showAlbumArt)
     {
         baseWindowWidth = windowStyle.albumArtSize + 15.0f + 235.0f + 15.0f; // art + padding + text + padding
-        baseWindowHeight = max(windowStyle.albumArtSize + 20.0f, 140.0f);
+        baseWindowHeight = std::max(windowStyle.albumArtSize + 20.0f, 140.0f);
     }
     else
     {
@@ -850,9 +821,9 @@ void RocketRhythm::RenderWindow()
         float dynamicScaleX = currentWindowSize.x / baseWindowWidth;
         float dynamicScaleY = currentWindowSize.y / baseWindowHeight;
         // Use the smaller scale to ensure content fits
-        float dynamicScale = min(dynamicScaleX, dynamicScaleY);
+        float dynamicScale = std::min(dynamicScaleX, dynamicScaleY);
         // Clamp to reasonable values
-        dynamicScale = max(0.5f, min(dynamicScale, 3.0f));
+        dynamicScale = std::max(0.5f, std::min(dynamicScale, 3.0f));
         
         // Calculate font scale
         float fontScale = dynamicScale;
@@ -901,20 +872,21 @@ void RocketRhythm::RenderWindow()
 void RocketRhythm::RenderCanvas(const CanvasWrapper& canvas)
 {
     static auto lastTime = std::chrono::steady_clock::now();
-    auto currentTime = std::chrono::steady_clock::now();
-    float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+    const auto currentTime = std::chrono::steady_clock::now();
+    const float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
     lastTime = currentTime;
-    
+
     if (media)
     {
+        // Now non-blocking: just copies cached state
         media->Update();
         mediaState = media->GetState();
         is_not_playing = !mediaState.isPlaying && mediaState.title.empty();
     }
-    
+
     UpdateAnimation(deltaTime);
     UpdateWindowState();
-    
+
     const std::string& menu_name = GetMenuNameCached();
     if (needs_window_open && !isWindowOpen_)
     {

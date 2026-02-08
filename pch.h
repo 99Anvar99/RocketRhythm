@@ -1,5 +1,10 @@
 #pragma once
 
+#pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include "bakkesmod/plugin/bakkesmodplugin.h"
