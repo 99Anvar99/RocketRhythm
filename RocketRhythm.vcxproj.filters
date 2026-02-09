@@ -146,9 +146,6 @@
     <ClInclude Include="GuiBase.h">
       <Filter>Plugin\header</Filter>
     </ClInclude>
-    <ClInclude Include="json.hpp">
-      <Filter>Plugin\header</Filter>
-    </ClInclude>
     <ClInclude Include="notification.h">
       <Filter>Plugin\header</Filter>
     </ClInclude>
