@@ -175,9 +175,9 @@ BakkesMod/data/RocketRhythm/config.json
 
 # ❤️ Credits
 
-Created by:
+Developed by:
 
-### 👨‍💻 Mister9982
+### Mister9982
 
 ---
 
