@@ -47,15 +47,119 @@ static bool IsValidImageFile(const std::string& path)
     }
 }
 
-// ---------------------------
+static nlohmann::json ImVec4ToJson(const ImVec4& c)
+{
+    return nlohmann::json::array({ c.x, c.y, c.z, c.w });
+}
 
+static bool JsonToImVec4(const nlohmann::json& j, ImVec4& out)
+{
+    if (!j.is_array() || j.size() != 4) return false;
+    for (int i = 0; i < 4; ++i)
+        if (!j[i].is_number()) return false;
+
+    out.x = j[0].get<float>();
+    out.y = j[1].get<float>();
+    out.z = j[2].get<float>();
+    out.w = j[3].get<float>();
+    return true;
+}
+
+template <typename T>
+static void AssignIfNumberOrBool(const nlohmann::json& obj, const char* key, T& target)
+{
+    auto it = obj.find(key);
+    if (it == obj.end()) return;
+
+    if constexpr (std::is_same_v<T, bool>)
+    {
+        if (it->is_boolean()) target = it->get<bool>();
+    }
+    else
+    {
+        if (it->is_number()) target = it->get<T>();
+    }
+}
+
+static RocketRhythm::WindowStyle DefaultWindowStyle() { return RocketRhythm::WindowStyle{}; }
+
+void to_json(nlohmann::json& j, const RocketRhythm::WindowStyle& s)
+{
+    j = nlohmann::json{
+        {"background_color", ImVec4ToJson(s.backgroundColor)},
+        {"accent_color",     ImVec4ToJson(s.accentColor)},
+        {"accent_color2",    ImVec4ToJson(s.accentColor2)},
+        {"text_color",       ImVec4ToJson(s.textColor)},
+        {"text_color_dim",   ImVec4ToJson(s.textColorDim)},
+        {"text_color_faint", ImVec4ToJson(s.textColorFaint)},
+
+        {"window_rounding",       s.windowRounding},
+        {"album_art_rounding",    s.albumArtRounding},
+        {"progress_bar_height",   s.progressBarHeight},
+        {"progress_bar_rounding", s.progressBarRounding},
+        {"album_art_size",        s.albumArtSize},
+        {"enable_pulse",          s.enablePulse},
+
+        {"show_album_art",     s.showAlbumArt},
+        {"show_progress_bar",  s.showProgressBar},
+        {"show_album_info",    s.showAlbumInfo},
+        {"window_opacity",     s.windowOpacity},
+
+        {"ui_scale",            s.uiScale},
+        {"enable_auto_scaling", s.enableAutoScaling},
+        {"min_scale",           s.minScale},
+        {"max_scale",           s.maxScale},
+    };
+}
+
+void from_json(const nlohmann::json& j, RocketRhythm::WindowStyle& s)
+{
+    const RocketRhythm::WindowStyle def = DefaultWindowStyle();
+    s = def;
+
+    if (!j.is_object()) return;
+
+    auto loadColor = [&](const char* key, ImVec4& target, const ImVec4& fallback)
+    {
+        auto it = j.find(key);
+        if (it == j.end()) { target = fallback; return; }
+        ImVec4 tmp;
+        if (JsonToImVec4(*it, tmp)) target = tmp;
+        else target = fallback;
+    };
+
+    loadColor("background_color", s.backgroundColor, def.backgroundColor);
+    loadColor("accent_color",     s.accentColor,     def.accentColor);
+    loadColor("accent_color2",    s.accentColor2,    def.accentColor2);
+    loadColor("text_color",       s.textColor,       def.textColor);
+    loadColor("text_color_dim",   s.textColorDim,    def.textColorDim);
+    loadColor("text_color_faint", s.textColorFaint,  def.textColorFaint);
+
+    AssignIfNumberOrBool(j, "window_rounding",       s.windowRounding);
+    AssignIfNumberOrBool(j, "album_art_rounding",    s.albumArtRounding);
+    AssignIfNumberOrBool(j, "progress_bar_height",   s.progressBarHeight);
+    AssignIfNumberOrBool(j, "progress_bar_rounding", s.progressBarRounding);
+    AssignIfNumberOrBool(j, "album_art_size",        s.albumArtSize);
+
+    AssignIfNumberOrBool(j, "window_opacity",        s.windowOpacity);
+    AssignIfNumberOrBool(j, "ui_scale",              s.uiScale);
+    AssignIfNumberOrBool(j, "min_scale",             s.minScale);
+    AssignIfNumberOrBool(j, "max_scale",             s.maxScale);
+
+    AssignIfNumberOrBool(j, "enable_pulse",          s.enablePulse);
+    AssignIfNumberOrBool(j, "show_album_art",        s.showAlbumArt);
+    AssignIfNumberOrBool(j, "show_progress_bar",     s.showProgressBar);
+    AssignIfNumberOrBool(j, "show_album_info",       s.showAlbumInfo);
+    AssignIfNumberOrBool(j, "enable_auto_scaling",   s.enableAutoScaling);
+}
+
+// ---------------------------
 RocketRhythm::RocketRhythm()
     : lastProgressUpdate(std::chrono::steady_clock::now()) {}
 
 RocketRhythm::~RocketRhythm() = default;
 
 // ---------------------------
-
 void RocketRhythm::onLoad()
 {
     _globalCvarManager = cvarManager;
@@ -940,50 +1044,56 @@ void RocketRhythm::UpdateWindowState()
 }
 
 // ---------------------------
-
 void RocketRhythm::SaveConfig()
 {
     try
     {
-        auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
+        const auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
         std::filesystem::create_directories(path.parent_path());
-        
+
         nlohmann::json j = {
-            {"version", 6},
+            {"version", PLUGIN_CONFIG_VERSION},
             {"enabled", *enabled},
             {"hide_when_not_playing", hide_when_not_playing},
-            {"ui_scale", windowStyle.uiScale},
-            {"enable_auto_scaling", windowStyle.enableAutoScaling},
-            {"min_scale", windowStyle.minScale},
-            {"max_scale", windowStyle.maxScale},
-            {"window_style", {
-                {"background_color", {windowStyle.backgroundColor.x, windowStyle.backgroundColor.y,
-                                     windowStyle.backgroundColor.z, windowStyle.backgroundColor.w}},
-                {"accent_color", {windowStyle.accentColor.x, windowStyle.accentColor.y,
-                                 windowStyle.accentColor.z, windowStyle.accentColor.w}},
-                {"accent_color2", {windowStyle.accentColor2.x, windowStyle.accentColor2.y,
-                                  windowStyle.accentColor2.z, windowStyle.accentColor2.w}},
-                {"text_color", {windowStyle.textColor.x, windowStyle.textColor.y,
-                               windowStyle.textColor.z, windowStyle.textColor.w}},
-                {"text_color_dim", {windowStyle.textColorDim.x, windowStyle.textColorDim.y,
-                                   windowStyle.textColorDim.z, windowStyle.textColorDim.w}},
-                {"text_color_faint", {windowStyle.textColorFaint.x, windowStyle.textColorFaint.y,
-                                     windowStyle.textColorFaint.z, windowStyle.textColorFaint.w}},
-                {"window_rounding", windowStyle.windowRounding},
-                {"album_art_rounding", windowStyle.albumArtRounding},
-                {"album_art_size", windowStyle.albumArtSize},
-                {"progress_bar_height", windowStyle.progressBarHeight},
-                {"progress_bar_rounding", windowStyle.progressBarRounding},
-                {"window_opacity", windowStyle.windowOpacity},
-                {"show_album_art", windowStyle.showAlbumArt},
-                {"show_progress_bar", windowStyle.showProgressBar},
-                {"show_album_info", windowStyle.showAlbumInfo},
-                {"enable_pulse", windowStyle.enablePulse}
-            }}
+            {"window_style", windowStyle}
         };
-        
-        std::ofstream file(path);
-        if (file.is_open()) file << j.dump(4);
+
+        const auto tmp_path = path.string() + ".tmp";
+
+        {
+            std::ofstream file(tmp_path, std::ios::binary | std::ios::trunc);
+            if (!file)
+            {
+                LOG("Error saving config: could not open file for writing: {}", tmp_path);
+                notify(Error, "Error saving config: could not open file for writing: {}", tmp_path);
+                return;
+            }
+
+            file << j.dump(4);
+            if (!file)
+            {
+                LOG("Error saving config: write failed: {}", tmp_path);
+                notify(Error, "Error saving config: write failed: {}", tmp_path);
+                return;
+            }
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(tmp_path, path, ec);
+        if (ec)
+        {
+            std::filesystem::remove(path, ec);
+            ec.clear();
+            std::filesystem::rename(tmp_path, path, ec);
+        }
+
+        if (ec)
+        {
+            LOG("Error saving config: failed to move temp file into place: {}", ec.message());
+            return;
+        }
+
+        LOG("Config Saved!");
     }
     catch (const std::exception& e)
     {
@@ -995,57 +1105,31 @@ void RocketRhythm::LoadConfig()
 {
     try
     {
-        auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
+        const auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
         if (!std::filesystem::exists(path)) return;
-        
-        std::ifstream file(path);
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+        {
+            LOG("Error loading config: could not open file: {}", path.string());
+            return;
+        }
+
         nlohmann::json j;
         file >> j;
-        
+
+        const int version = j.value("version", PLUGIN_CONFIG_VERSION);
+        (void)version; // silence unused if you don’t use it yet
+
         *enabled = j.value("enabled", true);
         hide_when_not_playing = j.value("hide_when_not_playing", true);
-        windowStyle.uiScale = j.value("ui_scale", 1.0f);
-        *uiScaleCVar = windowStyle.uiScale;
-        windowStyle.enableAutoScaling = j.value("enable_auto_scaling", true);
-        windowStyle.minScale = j.value("min_scale", 0.8f);
-        windowStyle.maxScale = j.value("max_scale", 2.0f);
-        
-        if (j.contains("window_style"))
-        {
-            auto style = j["window_style"];
-            auto loadColor = [&](const std::string& key, ImVec4& target, const ImVec4& defaultVal)
-            {
-                if (style.contains(key) && style[key].is_array() && style[key].size() == 4)
-                {
-                    target.x = style[key][0];
-                    target.y = style[key][1];
-                    target.z = style[key][2];
-                    target.w = style[key][3];
-                }
-                else
-                {
-                    target = defaultVal;
-                }
-            };
-            
-            loadColor("background_color", windowStyle.backgroundColor, ImVec4(0.0f, 0.0f, 0.0f, 0.85f));
-            loadColor("accent_color", windowStyle.accentColor, ImVec4(0.0f, 0.9884f, 1.0f, 1.0f));
-            loadColor("accent_color2", windowStyle.accentColor2, ImVec4(0.2f, 0.68f, 1.0f, 1.0f));
-            loadColor("text_color", windowStyle.textColor, ImVec4(1.00f, 1.00f, 1.00f, 1.0f));
-            loadColor("text_color_dim", windowStyle.textColorDim, ImVec4(0.75f, 0.75f, 0.75f, 1.0f));
-            loadColor("text_color_faint", windowStyle.textColorFaint, ImVec4(0.55f, 0.55f, 0.55f, 1.0f));
-            
-            windowStyle.windowRounding = style.value("window_rounding", 5.0f);
-            windowStyle.albumArtRounding = style.value("album_art_rounding", 14.0f);
-            windowStyle.albumArtSize = style.value("album_art_size", 110.0f);
-            windowStyle.progressBarHeight = style.value("progress_bar_height", 8.0f);
-            windowStyle.progressBarRounding = style.value("progress_bar_rounding", 4.0f);
-            windowStyle.windowOpacity = style.value("window_opacity", 1.0f);
-            windowStyle.showAlbumArt = style.value("show_album_art", true);
-            windowStyle.showProgressBar = style.value("show_progress_bar", true);
-            windowStyle.showAlbumInfo = style.value("show_album_info", true);
-            windowStyle.enablePulse = style.value("enable_pulse", true);
-        }
+
+        if (j.contains("window_style") && j["window_style"].is_object())
+            windowStyle = j["window_style"].get<WindowStyle>();
+
+        if (uiScaleCVar) *uiScaleCVar = windowStyle.uiScale;
+
+        LOG("Config Loaded!");
     }
     catch (const std::exception& e)
     {
@@ -1054,7 +1138,6 @@ void RocketRhythm::LoadConfig()
 }
 
 // ---------------------------
-
 const std::string& RocketRhythm::GetMenuNameCached()
 {
     if (!menu_name_cached)
