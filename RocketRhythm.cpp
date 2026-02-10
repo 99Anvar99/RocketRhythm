@@ -219,14 +219,12 @@ void RocketRhythm::InitializeFont()
         return;
 
     ImGuiIO& io = ImGui::GetIO();
-    
     if (!io.Fonts)
         return;
 
+    // Build merged glyph ranges once
     ImFontGlyphRangesBuilder builder;
-
-    std::vector ranges =
-    {
+    const ImWchar* ranges[] = {
         io.Fonts->GetGlyphRangesDefault(),
         io.Fonts->GetGlyphRangesCyrillic(),
         io.Fonts->GetGlyphRangesJapanese(),
@@ -234,111 +232,60 @@ void RocketRhythm::InitializeFont()
         io.Fonts->GetGlyphRangesKorean(),
         io.Fonts->GetGlyphRangesThai()
     };
-
-    for (size_t i = 0; i < ranges.size(); ++i)
-    {
-        builder.AddRanges(ranges[i]);
-        LOG("Adding glyph range {} to font!", i);
-    }
-
+    for (auto r : ranges) builder.AddRanges(r);
     builder.BuildRanges(&mergedGlyphRanges);
-    LOG("Building {} GlyphRanges!", ranges.size());
 
     PWSTR pathToFonts = nullptr;
-
     if (!SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &pathToFonts)))
         return;
 
     std::filesystem::path fontsPath = pathToFonts;
     CoTaskMemFree(pathToFonts);
 
-    std::filesystem::path segoePath = fontsPath / "segoeui.ttf";
+    auto segoePath   = (fontsPath / "segoeui.ttf").string();
+    auto chinesePath = (fontsPath / "msyh.ttc").string();    // YaHei
+    auto japanesePath= (fontsPath / "meiryo.ttc").string();
+    auto koreanPath  = (fontsPath / "malgun.ttf").string();
 
     if (!std::filesystem::exists(segoePath))
         return;
 
-    ImFontConfig baseConfig{};
-    baseConfig.PixelSnapH = true;
-    baseConfig.OversampleH = 2;
-    baseConfig.OversampleV = 2;
+    ImFontConfig base{};
+    base.PixelSnapH = true;
+    base.OversampleH = 2;
+    base.OversampleV = 2;
 
+    ImFontConfig merge{};
+    merge.MergeMode = true;
+    merge.PixelSnapH = true;
+
+    auto addFallbacks = [&](float sizePx)
+    {
+        if (std::filesystem::exists(chinesePath))
+            io.Fonts->AddFontFromFileTTF(chinesePath.c_str(), sizePx, &merge, mergedGlyphRanges.Data);
+        if (std::filesystem::exists(japanesePath))
+            io.Fonts->AddFontFromFileTTF(japanesePath.c_str(), sizePx, &merge, mergedGlyphRanges.Data);
+        if (std::filesystem::exists(koreanPath))
+            io.Fonts->AddFontFromFileTTF(koreanPath.c_str(), sizePx, &merge, mergedGlyphRanges.Data);
+    };
+
+    // ---- 24px family (add base, then merge fallbacks into *that* base)
     customFontSegoeUI = io.Fonts->AddFontFromFileTTF(
-        segoePath.string().c_str(),
-        24.0f,
-        &baseConfig,
-        mergedGlyphRanges.Data
+        segoePath.c_str(), 24.0f, &base, mergedGlyphRanges.Data
     );
+    if (customFontSegoeUI)
+        addFallbacks(24.0f);
 
+    // ---- 16px family (add base, then merge fallbacks into *that* base)
     customSettingsFontUI = io.Fonts->AddFontFromFileTTF(
-        segoePath.string().c_str(),
-        16.0f,
-        &baseConfig,
-        mergedGlyphRanges.Data
+        segoePath.c_str(), 16.0f, &base, mergedGlyphRanges.Data
     );
-
-    ImFontConfig mergeConfig{};
-    mergeConfig.MergeMode = true;
-    mergeConfig.PixelSnapH = true;
-
-    // Chinese fallback (Microsoft YaHei)
-    std::filesystem::path chinesePath = fontsPath / "msyh.ttc";
-    if (std::filesystem::exists(chinesePath))
-    {
-        io.Fonts->AddFontFromFileTTF(
-            chinesePath.string().c_str(),
-            24.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-
-        io.Fonts->AddFontFromFileTTF(
-            chinesePath.string().c_str(),
-            16.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-    }
-
-    // Japanese fallback (Meiryo)
-    std::filesystem::path japanesePath = fontsPath / "meiryo.ttc";
-    if (std::filesystem::exists(japanesePath))
-    {
-        io.Fonts->AddFontFromFileTTF(
-            japanesePath.string().c_str(),
-            24.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-
-        io.Fonts->AddFontFromFileTTF(
-            japanesePath.string().c_str(),
-            16.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-    }
-
-    // Korean fallback (Malgun Gothic)
-    std::filesystem::path koreanPath = fontsPath / "malgun.ttf";
-    if (std::filesystem::exists(koreanPath))
-    {
-        io.Fonts->AddFontFromFileTTF(
-            koreanPath.string().c_str(),
-            24.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-
-        io.Fonts->AddFontFromFileTTF(
-            koreanPath.string().c_str(),
-            16.0f,
-            &mergeConfig,
-            mergedGlyphRanges.Data
-        );
-    }
+    if (customSettingsFontUI)
+        addFallbacks(16.0f);
 
     io.Fonts->Build();
-    fontsInitialized = true;
+
+    fontsInitialized = customFontSegoeUI != nullptr && customSettingsFontUI != nullptr;
 }
 
 // ---------------------------
