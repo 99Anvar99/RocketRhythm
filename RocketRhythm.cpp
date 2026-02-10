@@ -73,11 +73,17 @@ static void AssignIfNumberOrBool(const nlohmann::json& obj, const char* key, T& 
 
     if constexpr (std::is_same_v<T, bool>)
     {
-        if (it->is_boolean()) target = it->get<bool>();
+        if (it->is_boolean())
+            target = it->get<bool>();
     }
     else
     {
-        if (it->is_number()) target = it->get<T>();
+        if (it->is_number())
+        {
+            // read as double to avoid template mismatch / overflow surprises
+            const double v = it->get<double>();
+            target = static_cast<T>(v);
+        }
     }
 }
 
@@ -151,6 +157,20 @@ void from_json(const nlohmann::json& j, RocketRhythm::WindowStyle& s)
     AssignIfNumberOrBool(j, "show_progress_bar",     s.showProgressBar);
     AssignIfNumberOrBool(j, "show_album_info",       s.showAlbumInfo);
     AssignIfNumberOrBool(j, "enable_auto_scaling",   s.enableAutoScaling);
+
+    auto clampf = [](float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; };
+
+    s.windowOpacity = clampf(s.windowOpacity, 0.0f, 1.0f);
+    s.uiScale = clampf(s.uiScale, 0.5f, 2.0f);
+    s.minScale = clampf(s.minScale, 0.1f, 10.0f);
+    s.maxScale = clampf(s.maxScale, 0.1f, 10.0f);
+    if (s.minScale > s.maxScale) std::swap(s.minScale, s.maxScale);
+
+    s.windowRounding = clampf(s.windowRounding, 0.0f, 50.0f);
+    s.albumArtRounding = clampf(s.albumArtRounding, 0.0f, 50.0f);
+    s.progressBarHeight = clampf(s.progressBarHeight, 0.0f, 50.0f);
+    s.progressBarRounding = clampf(s.progressBarRounding, 0.0f, 50.0f);
+    s.albumArtSize = clampf(s.albumArtSize, 16.0f, 512.0f);
 }
 
 // ---------------------------
@@ -1120,7 +1140,7 @@ void RocketRhythm::SaveConfig()
 
 void RocketRhythm::LoadConfig()
 {
-    if (!enabled || !uiScaleCVar) 
+    if (!enabled || !uiScaleCVar)
     {
         LOG("LoadConfig skipped: CVars not initialized yet");
         return;
@@ -1128,8 +1148,21 @@ void RocketRhythm::LoadConfig()
 
     try
     {
+        // Always start from defaults
+        *enabled = true;
+        hide_when_not_playing = true;
+        windowStyle = DefaultWindowStyle();
+
         const auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
-        if (!std::filesystem::exists(path)) return;
+
+        // If no config exists, write defaults once
+        if (!std::filesystem::exists(path))
+        {
+            if (uiScaleCVar) *uiScaleCVar = windowStyle.uiScale;
+            SaveConfig();
+            LOG("Config not found; created default config");
+            return;
+        }
 
         std::ifstream file(path, std::ios::binary);
         if (!file)
@@ -1141,14 +1174,25 @@ void RocketRhythm::LoadConfig()
         nlohmann::json j;
         file >> j;
 
-        const int version = j.value("version", PLUGIN_CONFIG_VERSION);
-        (void)version; // silence unused if you don’t use it yet
+        const int version = j.value("version", 0);
 
-        *enabled = j.value("enabled", true);
-        hide_when_not_playing = j.value("hide_when_not_playing", true);
+        // If version mismatch, reset to defaults and rewrite
+        if (version != PLUGIN_CONFIG_VERSION)
+        {
+            LOG("Config version mismatch (have {}, want {}); resetting to defaults", version, PLUGIN_CONFIG_VERSION);
+            if (uiScaleCVar) *uiScaleCVar = windowStyle.uiScale;
+            SaveConfig();
+            return;
+        }
+
+        // Read values (overriding defaults only if present)
+        *enabled = j.value("enabled", *enabled);
+        hide_when_not_playing = j.value("hide_when_not_playing", hide_when_not_playing);
 
         if (j.contains("window_style") && j["window_style"].is_object())
+        {
             windowStyle = j["window_style"].get<WindowStyle>();
+        }
 
         if (uiScaleCVar) *uiScaleCVar = windowStyle.uiScale;
 
@@ -1157,6 +1201,9 @@ void RocketRhythm::LoadConfig()
     catch (const std::exception& e)
     {
         LOG("Error loading config: {}", e.what());
+        // Optional: if load fails, rewrite defaults so next run is clean
+        if (uiScaleCVar) *uiScaleCVar = windowStyle.uiScale;
+        SaveConfig();
     }
 }
 

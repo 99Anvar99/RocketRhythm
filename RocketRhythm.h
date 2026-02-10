@@ -12,7 +12,7 @@
 #include "bakkesmod/wrappers/wrapperstructs.h"
 #include "bakkesmod/wrappers/ImageWrapper.h"
 
-inline constexpr int PLUGIN_CONFIG_VERSION = 7;
+inline constexpr int PLUGIN_CONFIG_VERSION = 8;
 
 class RocketRhythm : public BakkesMod::Plugin::BakkesModPlugin, public SettingsWindowBase, public PluginWindowBase
 {
@@ -93,10 +93,10 @@ public:
 
     struct WindowStyle
     {
-        ImVec4 backgroundColor = ImVec4(0.0f, 0.0f, 0.0f, 0.85f);
+        ImVec4 backgroundColor = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
         ImVec4 accentColor = ImVec4(0.0f, 0.9884f, 1.0f, 1.0f);
         ImVec4 accentColor2 = ImVec4(0.2f, 0.68f, 1.0f, 1.0f);
-        ImVec4 textColor = ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
+        ImVec4 textColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
         ImVec4 textColorDim = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
         ImVec4 textColorFaint = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
 
@@ -104,17 +104,24 @@ public:
         float albumArtRounding = 14.0f;
         float progressBarHeight = 8.0f;
         float progressBarRounding = 4.0f;
-        float albumArtSize = 110.0f;
+        float albumArtSize = 118.0f;
         bool enablePulse = true;
 
         bool showAlbumArt = true;
         bool showProgressBar = true;
         bool showAlbumInfo = true;
         float windowOpacity = 1.0f;
+
         float uiScale = 1.0f;
-        bool enableAutoScaling = true;
+        bool enableAutoScaling = false;
         float minScale = 0.8f;
         float maxScale = 2.0f;
-    }; WindowStyle windowStyle{};
-    static WindowStyle DefaultWindowStyle() { return WindowStyle{}; }
+    };
+
+    WindowStyle windowStyle{};
+    
+    static WindowStyle DefaultWindowStyle()
+    {
+        return WindowStyle{};
+    }
 };
