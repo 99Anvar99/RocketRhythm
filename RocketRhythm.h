@@ -29,6 +29,8 @@ class RocketRhythm : public BakkesMod::Plugin::BakkesModPlugin, public SettingsW
 
     std::unique_ptr<MediaController> media;
     MediaState mediaState;
+
+    bool fontsInitialized = false;
     ImFont* customFontSegoeUI = nullptr;
     ImFont* customSettingsFontUI = nullptr;
 

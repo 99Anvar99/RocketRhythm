@@ -172,7 +172,11 @@ void RocketRhythm::onLoad()
     cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).bindTo(uiScaleCVar);
 
     LoadConfig();
-    InitializeFont();
+
+    if (!fontsInitialized)
+    {
+        InitializeFont();
+    }
 
     gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
 
@@ -191,7 +195,13 @@ void RocketRhythm::onUnload()
 // ---------------------------
 void RocketRhythm::InitializeFont()
 {
+    if (!ImGui::GetCurrentContext())
+        return;
+
     ImGuiIO& io = ImGui::GetIO();
+    
+    if (!io.Fonts)
+        return;
 
     ImFontGlyphRangesBuilder builder;
 
@@ -308,6 +318,7 @@ void RocketRhythm::InitializeFont()
     }
 
     io.Fonts->Build();
+    fontsInitialized = true;
 }
 
 // ---------------------------
@@ -720,14 +731,14 @@ void RocketRhythm::DrawNoMusicState()
 
 void RocketRhythm::RenderSettings()
 {
-    if (customSettingsFontUI)
-    {
+    auto& io = ImGui::GetIO();
+
+    if (customSettingsFontUI) 
         ImGui::PushFont(customSettingsFontUI);
-    }
-    else
-    {
-        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
-    }
+    else if (io.Fonts && !io.Fonts->Fonts.empty()) 
+        ImGui::PushFont(io.Fonts->Fonts[0]);
+    else 
+        ImGui::PushFont(ImGui::GetFont());
     
     const std::string& plugin_name = GetPluginNameCached();
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(plugin_name.c_str()).x) * 0.5f);
@@ -1046,6 +1057,12 @@ void RocketRhythm::UpdateWindowState()
 // ---------------------------
 void RocketRhythm::SaveConfig()
 {
+    if (!enabled || !uiScaleCVar) 
+    {
+        LOG("SaveConfig skipped: CVars not initialized yet");
+        return;
+    }
+
     try
     {
         const auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
@@ -1103,6 +1120,12 @@ void RocketRhythm::SaveConfig()
 
 void RocketRhythm::LoadConfig()
 {
+    if (!enabled || !uiScaleCVar) 
+    {
+        LOG("LoadConfig skipped: CVars not initialized yet");
+        return;
+    }
+
     try
     {
         const auto path = gameWrapper->GetDataFolder() / CONFIG_DIR / CONFIG_FILE_NAME;
