@@ -12,7 +12,7 @@
 <h1 align="center">🎵 RocketRhythm</h1>
 
 <p align="center">
-  A modern real-time music overlay for Rocket League
+  A modern real-time music overlay for Rocket League (BakkesMod)
 </p>
 
 <p align="center">
@@ -41,15 +41,15 @@
 
 # 🚀 Overview
 
-**RocketRhythm** is a high-performance BakkesMod plugin that displays your currently playing music directly inside Rocket League through a clean, responsive, and visually polished overlay.
+**RocketRhythm** is a high-performance BakkesMod plugin that shows your currently playing music inside Rocket League through a clean, responsive, and polished overlay.
 
-The plugin is fully built using **Dear ImGui**, ensuring smooth rendering and minimal performance overhead.
+Built with **Dear ImGui** for smooth rendering and minimal overhead.
 
-RocketRhythm integrates with:
+RocketRhythm reads your active media session via:
 
 👉 **Windows Global System Media Transport Controls (GSMTC)**
 
-This allows the plugin to automatically detect and display media from most Windows-compatible media players. Advanced Spotify API integration is planned for future releases.
+This lets the plugin automatically detect media from most Windows-compatible players (Spotify, browsers, etc.). Spotify API integration is planned for future releases.
 
 ---
 
@@ -71,119 +71,138 @@ This allows the plugin to automatically detect and display media from most Windo
 # ✨ Features
 
 ## 🎧 Real-Time Media Detection
-- Track title
-- Artist name
-- Album information
-- Playback progress tracking
-- Play and pause state detection
-
----
-
-## 🌐 Language Support
-- Supports most international character sets
-- Custom font rendering for improved readability
-- Clean and consistent text layout
-
----
+- Title / artist / album metadata
+- Play / pause state
+- Smooth progress tracking
 
 ## 🖼 Album Artwork
-- Automatic album artwork detection
-- Persistent disk caching system
-- GPU texture caching using LRU optimization
-- Automatic placeholder fallback when artwork is unavailable
-
----
+- Automatic album art detection (when available)
+- Persistent disk caching
+- GPU texture caching
+- Clean placeholder fallback
 
 ## 📏 Smart UI Scaling
-- DPI-aware scaling for high-resolution displays
-- Automatic resolution-based scaling
-- Manual UI scaling override
-- Dynamic overlay auto-resizing
-- Resizable overlay using corner dragging
+- DPI-aware scaling
+- Optional auto scaling (resolution + DPI)
+- Manual scaling via `rr_uiscale`
+- Resizable overlay (corner dragging)
 
----
+## 🎬 UI Polish
+- Smooth progress interpolation + optional pulse animation
+- Ping-pong marquee scrolling for long metadata
+- **Time display modes:** centered (`current / total`) or corners (left/right)
 
-## 🎬 Smooth Animations
-- Smooth playback progress interpolation
-- Optional pulse animation synchronized with playback
-- Automatic scrolling for long track titles and metadata
-
----
+## 🌐 Language Support
+- International character support (CJK/Thai/Cyrillic)
+- Font fallback merging for consistent rendering
 
 ## ⚡ Performance Focused
-- Near-zero ImGui memory allocations during runtime
-- Thread-safe media polling system
-- Optimized GPU texture upload pipeline
-- Memory-safe resource and texture management
+- Thread-safe media polling
+- Optimized texture handling
+- Minimal ImGui overhead during runtime
 
 ---
 
 # 📥 Installation
 
-## ⭐ Recommended Installation (Releases)
+## ⭐ Recommended (Releases)
 
-👉 Download the latest version:
+### 🔽 Download Latest Release
+https://github.com/99Anvar99/RocketRhythm/releases/latest
 
-### 🔽 [Download Latest Release](https://github.com/99Anvar99/RocketRhythm/releases/latest)
-
-1. Download the `.dll` file  
-2. Place the file inside:
-
-BakkesMod/plugins/
-
-3. Launch Rocket League  
-4. Enable the plugin via the BakkesMod plugin manager  
+1. Download the `.dll`
+2. Place it in:
+   - `BakkesMod/plugins/`
+3. Launch Rocket League
+4. Enable RocketRhythm in the BakkesMod Plugin Manager
 
 ---
 
 ## 🛠 Manual Build
 
 ### Requirements
-- Visual Studio 2022 or newer
+- Visual Studio 2022+
 - BakkesMod SDK
-- Windows 10 or newer
+- Windows 10+
 
 ### Build Steps
-
+```bash
 git clone https://github.com/99Anvar99/RocketRhythm
+```
 
-Open the solution in Visual Studio and build the plugin.
+Open the solution in Visual Studio and build.
+
+---
+
+# ⚙️ CVars
+
+```txt
+rr_enabled = 1
+rr_uiscale = 1.0
+```
 
 ---
 
 # ⚙️ Plugin Settings
 
 | Setting | Description |
-|----------|-------------|
-| Enable Overlay | Toggles the music overlay visibility |
-| Hide When Not Playing | Automatically hides overlay when no music is detected |
-| UI Scale | Manually adjusts overlay size |
-| Enable Pulse | Enables playback pulse animation |
-| Show Album Art | Displays album artwork |
-| Show Progress Bar | Displays playback progress bar |
-| Show Album Info | Displays album metadata |
+|---|---|
+| Enable Plugin | Enables/disables RocketRhythm |
+| Hide When Not Playing | Auto-hides overlay when no active media session |
+| Enable Auto Scaling | Scales UI based on screen resolution + DPI |
+| UI Scale Multiplier | Manual multiplier (also tied to `rr_uiscale`) |
+| Background / Accent | Overlay color controls |
+| Opacity | Overlay opacity |
+| Window Rounding | Window corner rounding |
+| Album Art Size | Album art size control |
+| Show Album Art | Toggle album artwork |
+| Show Progress Bar | Toggle progress bar |
+| Show Album Info | Toggle album field |
+| Enable Pulse Effect | Subtle pulse animation when playing |
+| Marquee Scrolling | Ping-pong scrolling for long metadata |
+| Time Display Mode | Centered `current / total` or corners (left/right) |
 
 ---
 
 # 📂 Configuration
 
-RocketRhythm automatically stores configuration data in:
+RocketRhythm saves config to:
 
-BakkesMod/data/RocketRhythm/config.json
+- `BakkesMod/data/RocketRhythm/config.json`
+
+If the config version is incompatible, RocketRhythm resets to defaults and regenerates the file automatically.
+
+---
+
+# 🧯 Troubleshooting
+
+**No track info?**
+- Use a player that publishes GSMTC (Spotify or a Chromium browser tab).
+- Some apps only publish sessions while audio is playing.
+
+**Plugin not showing?**
+- Ensure `RocketRhythm.dll` is in `BakkesMod/plugins/`
+- Enable it in Plugin Manager.
+
+**Scaling looks off?**
+- Disable Auto Scaling and test `rr_uiscale`.
+- High Windows display scaling may require Auto Scaling ON with a lower multiplier.
+
+**Album art missing?**
+- Some players don’t provide artwork for every track.
+- Switching tracks can force a refresh.
 
 ---
 
 # ❤️ Credits
 
-Developed by:
-
-### Mister9982
+Developed by **Mister9982**
 
 ---
 
 # 📜 License
 
-Distributed under the MIT License. See LICENSE for details.
+Distributed under the MIT License. See `LICENSE` for details.
 
 ---
 
