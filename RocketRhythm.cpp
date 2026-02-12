@@ -47,54 +47,25 @@ static std::wstring ToWide(const std::string& s)
     return out;
 }
 
-static bool DownloadToFile(const std::wstring& url, const std::filesystem::path& dst, std::string& outErr)
+static bool DownloadToFile(const std::wstring& url, const std::filesystem::path& outPath, std::string& err)
 {
-    try
+    std::error_code ec;
+    std::filesystem::create_directories(outPath.parent_path(), ec);
+    if (ec)
     {
-        std::error_code ec;
-        std::filesystem::create_directories(dst.parent_path(), ec);
-        if (ec)
-        {
-            outErr = "create_directories failed: " + ec.message();
-            return false;
-        }
-
-        // Download to temp first, then rename (avoids partial file if interrupted)
-        const auto tmp = dst.string() + ".tmp";
-        std::filesystem::remove(tmp, ec);
-
-        HRESULT hr = URLDownloadToFileW(nullptr, url.c_str(), ToWide(tmp).c_str(), 0, nullptr);
-        if (FAILED(hr))
-        {
-            outErr = "URLDownloadToFileW failed (HRESULT=" + std::to_string(static_cast<unsigned long>(hr)) + ")";
-            std::filesystem::remove(tmp, ec);
-            return false;
-        }
-
-        // Basic sanity check
-        if (!std::filesystem::exists(tmp) || std::filesystem::file_size(tmp) < 1024)
-        {
-            outErr = "downloaded file is missing or too small";
-            std::filesystem::remove(tmp, ec);
-            return false;
-        }
-
-        std::filesystem::remove(dst, ec);
-        std::filesystem::rename(tmp, dst, ec);
-        if (ec)
-        {
-            outErr = "rename failed: " + ec.message();
-            std::filesystem::remove(tmp, ec);
-            return false;
-        }
-
-        return true;
-    }
-    catch (const std::exception& e)
-    {
-        outErr = e.what();
+        err = "create_directories failed: " + ec.message();
         return false;
     }
+
+    HRESULT hr = URLDownloadToFileW(nullptr, url.c_str(), outPath.wstring().c_str(), 0, nullptr);
+    if (FAILED(hr))
+    {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "HRESULT=0x%08lX", static_cast<unsigned long>(hr));
+        err = buf;
+        return false;
+    }
+    return true;
 }
 
 static std::string FormatTimeSeconds(int seconds)
@@ -352,7 +323,6 @@ void RocketRhythm::onLoad()
     cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).bindTo(mUiScaleCvar);
 
     LoadConfig();
-    if (!mFontsInitialized) InitializeFonts();
 
     gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
 
@@ -404,74 +374,119 @@ std::string RocketRhythm::GetPluginName()
 // ------------------------------------------------------------
 void RocketRhythm::InitializeFonts()
 {
-    if (mFontsInitialized)
+    if (mFontOverlay && mFontSettings)
+    {
+        mFontsInitialized = true;
         return;
+    }
 
     auto gui = gameWrapper->GetGUIManager();
 
-    const std::filesystem::path fontDir = gameWrapper->GetDataFolder() / "RocketRhythm" / "fonts";
-    const std::filesystem::path overlayFontFile = fontDir / "Overlay.ttf";
-    const std::filesystem::path settingsFontFile = fontDir / "Settings.ttf";
+    const std::filesystem::path bmData    = gameWrapper->GetDataFolder();
+    const std::filesystem::path fontDir   = bmData / "fonts" / "RocketRhythm";
+    const std::filesystem::path fontFile  = fontDir / "segoeui.ttf";
 
-    static const std::wstring kFontUrl = L"https://github.com/99Anvar99/RocketRhythm/fonts/segoeui.ttf";
+    static const std::wstring kFontUrl = L"https://raw.githubusercontent.com/99Anvar99/RocketRhythm/main/fonts/segoeui.ttf";
 
-    // Kick off downloads once if missing (non-blocking)
-    static std::atomic sDownloadStarted{false};
-    if (!sDownloadStarted.exchange(true))
+    const std::string fontRel = "RocketRhythm/segoeui.ttf";
+
+    // Ensure directory exists
+    std::error_code ec;
+    std::filesystem::create_directories(fontDir, ec);
+    if (ec)
     {
-        // Only download what’s missing
-        const bool needOverlay = !std::filesystem::exists(overlayFontFile);
-        const bool needSettings = !std::filesystem::exists(settingsFontFile);
-
-        if (needOverlay || needSettings)
-        {
-            std::thread([needOverlay, needSettings, overlayFontFile, settingsFontFile]
-            {
-                // Optional COM init (URLMon may use COM internally; harmless here)
-                CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-
-                if (needOverlay)
-                {
-                    std::string err;
-                    if (!DownloadToFile(kFontUrl, overlayFontFile, err))
-                        LOG("Font download failed (Overlay): {}", err);
-                    else
-                        LOG("Font downloaded: {}", overlayFontFile.string());
-                }
-
-                if (needSettings)
-                {
-                    std::string err;
-                    if (!DownloadToFile(kFontUrl, settingsFontFile, err))
-                        LOG("Font download failed (Settings): {}", err);
-                    else
-                        LOG("Font downloaded: {}", settingsFontFile.string());
-                }
-
-                CoUninitialize();
-            }).detach();
-        }
+        LOG("Failed to create fonts dir: {} ({})", fontDir.string(), ec.message());
     }
 
-    // Try to load (works whether file existed already or was downloaded earlier)
-    static constexpr auto kOverlayKey = "rr_overlay_24";
+    static std::atomic_bool sDownloadInFlight{ false };
+
+    const bool haveFontFile = std::filesystem::exists(fontFile);
+
+    if (!haveFontFile && !sDownloadInFlight.exchange(true))
+    {
+        // capture only what we need by value
+        const std::wstring urlCopy = kFontUrl;
+        const std::filesystem::path dstFinal = fontFile;
+        const std::filesystem::path dstTemp  = fontDir / "segoeui.tmp";
+
+        std::thread([urlCopy, dstFinal, dstTemp]()
+        {
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+            // Download to temp first to avoid partial reads
+            std::string err;
+            bool ok = DownloadToFile(urlCopy, dstTemp, err);
+
+            if (!ok)
+            {
+                LOG("Font download failed: {}", err);
+                std::error_code ec2;
+                std::filesystem::remove(dstTemp, ec2);
+            }
+            else
+            {
+                // Atomically replace/move temp -> final
+                std::error_code ec3;
+                std::filesystem::rename(dstTemp, dstFinal, ec3);
+                if (ec3)
+                {
+                    // If rename fails (e.g., file exists), try over-write strategy
+                    std::error_code ec4;
+                    std::filesystem::remove(dstFinal, ec4);
+                    ec3.clear();
+                    std::filesystem::rename(dstTemp, dstFinal, ec3);
+                }
+
+                if (ec3)
+                    LOG("Font move into place failed: {}", ec3.message());
+                else
+                    LOG("Font downloaded: {}", dstFinal.string());
+            }
+
+            if (SUCCEEDED(hr))
+                CoUninitialize();
+
+            sDownloadInFlight.store(false);
+        }).detach();
+    }
+
+    // Try to load whenever the file exists (this will naturally succeed on later frames)
+    static constexpr auto kOverlayKey  = "rr_overlay_24";
     static constexpr auto kSettingsKey = "rr_settings_16";
 
-    if (!mFontOverlay && std::filesystem::exists(overlayFontFile))
+    if (std::filesystem::exists(fontFile))
     {
-        auto [res, font] = gui.LoadFont(kOverlayKey, overlayFontFile.string(), 24);
-        if (res == 2 && font) mFontOverlay = font;
-    }
-    if (!mFontOverlay)
-        mFontOverlay = gui.GetFont(kOverlayKey);
+        // Build ranges once
+        static ImVector<ImWchar> sGlyphRanges;
+        static std::atomic_bool sRangesBuilt{ false };
 
-    if (!mFontSettings && std::filesystem::exists(settingsFontFile))
-    {
-        auto [res, font] = gui.LoadFont(kSettingsKey, settingsFontFile.string(), 16);
-        if (res == 2 && font) mFontSettings = font;
+        if (!sRangesBuilt.exchange(true))
+        {
+            ImGuiIO& io = ImGui::GetIO();
+
+            ImFontGlyphRangesBuilder builder;
+            builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+            builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
+            builder.AddRanges(io.Fonts->GetGlyphRangesJapanese());
+            builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            builder.AddRanges(io.Fonts->GetGlyphRangesKorean());
+            builder.BuildRanges(&sGlyphRanges);
+        }
+
+        if (!mFontOverlay)
+        {
+            auto [res, font] = gui.LoadFont(kOverlayKey, fontRel, 24, nullptr, sGlyphRanges.Data);
+            if ((res == 0 || res == 2) && font) mFontOverlay = font;
+            if (!mFontOverlay) mFontOverlay = gui.GetFont(kOverlayKey);
+        }
+
+        if (!mFontSettings)
+        {
+            auto [res, font] = gui.LoadFont(kSettingsKey, fontRel, 16, nullptr, sGlyphRanges.Data);
+            if ((res == 0 || res == 2) && font) mFontSettings = font;
+            if (!mFontSettings) mFontSettings = gui.GetFont(kSettingsKey);
+        }
     }
-    if (!mFontSettings)
-        mFontSettings = gui.GetFont(kSettingsKey);
 
     mFontsInitialized = mFontOverlay != nullptr && mFontSettings != nullptr;
 }
