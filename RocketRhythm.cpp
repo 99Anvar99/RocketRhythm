@@ -1,20 +1,24 @@
 #include "pch.h"
 #include "RocketRhythm.h"
 
+#include <urlmon.h>
+#pragma comment(lib, "urlmon.lib")
+
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <cmath>
-#include <string>
-#include <ShlObj.h>
-#include <Windows.h>
 #include <shellapi.h>
+#include <ShlObj.h>
+#include <string>
+#include <Windows.h>
 
 #include <nlohmann/json.hpp>
-
 #include "notification.h"
-#include "IMGUI/imgui_internal.h"
+
 #include "version.h"
+#include "bakkesmod/wrappers/GuiManagerWrapper.h"
+#include "IMGUI/imgui_internal.h"
 
 std::shared_ptr<CVarManagerWrapper> _globalCvarManager;
 
@@ -33,6 +37,65 @@ BAKKESMOD_PLUGIN(RocketRhythm, "RocketRhythm", plugin_version.c_str(), PLUGINTYP
 // ------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------
+
+static std::wstring ToWide(const std::string& s)
+{
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring out(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), out.data(), len);
+    return out;
+}
+
+static bool DownloadToFile(const std::wstring& url, const std::filesystem::path& dst, std::string& outErr)
+{
+    try
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(dst.parent_path(), ec);
+        if (ec)
+        {
+            outErr = "create_directories failed: " + ec.message();
+            return false;
+        }
+
+        // Download to temp first, then rename (avoids partial file if interrupted)
+        const auto tmp = dst.string() + ".tmp";
+        std::filesystem::remove(tmp, ec);
+
+        HRESULT hr = URLDownloadToFileW(nullptr, url.c_str(), ToWide(tmp).c_str(), 0, nullptr);
+        if (FAILED(hr))
+        {
+            outErr = "URLDownloadToFileW failed (HRESULT=" + std::to_string(static_cast<unsigned long>(hr)) + ")";
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
+
+        // Basic sanity check
+        if (!std::filesystem::exists(tmp) || std::filesystem::file_size(tmp) < 1024)
+        {
+            outErr = "downloaded file is missing or too small";
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
+
+        std::filesystem::remove(dst, ec);
+        std::filesystem::rename(tmp, dst, ec);
+        if (ec)
+        {
+            outErr = "rename failed: " + ec.message();
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
+
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        outErr = e.what();
+        return false;
+    }
+}
 
 static std::string FormatTimeSeconds(int seconds)
 {
@@ -286,13 +349,10 @@ void RocketRhythm::onLoad()
     mUiScaleCvar = std::make_shared<float>(1.0f);
 
     cvarManager->registerCvar("rr_enabled", "1", "Enable RocketRhythm").bindTo(mEnabled);
-    cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f)
-        .bindTo(mUiScaleCvar);
+    cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).bindTo(mUiScaleCvar);
 
     LoadConfig();
-
-    if (!mFontsInitialized)
-        InitializeFonts();
+    if (!mFontsInitialized) InitializeFonts();
 
     gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
 
@@ -342,74 +402,78 @@ std::string RocketRhythm::GetPluginName()
 // ------------------------------------------------------------
 // Fonts
 // ------------------------------------------------------------
-
 void RocketRhythm::InitializeFonts()
 {
-    if (!ImGui::GetCurrentContext())
+    if (mFontsInitialized)
         return;
 
-    ImGuiIO& io = ImGui::GetIO();
-    if (!io.Fonts)
-        return;
+    auto gui = gameWrapper->GetGUIManager();
 
-    // Build merged glyph ranges once
-    ImFontGlyphRangesBuilder builder;
-    const ImWchar* ranges[] = {
-        io.Fonts->GetGlyphRangesDefault(),
-        io.Fonts->GetGlyphRangesCyrillic(),
-        io.Fonts->GetGlyphRangesJapanese(),
-        io.Fonts->GetGlyphRangesChineseSimplifiedCommon(),
-        io.Fonts->GetGlyphRangesKorean(),
-        io.Fonts->GetGlyphRangesThai()
-    };
-    for (auto r : ranges) builder.AddRanges(r);
-    builder.BuildRanges(&mMergedGlyphRanges);
+    const std::filesystem::path fontDir = gameWrapper->GetDataFolder() / "RocketRhythm" / "fonts";
+    const std::filesystem::path overlayFontFile = fontDir / "Overlay.ttf";
+    const std::filesystem::path settingsFontFile = fontDir / "Settings.ttf";
 
-    PWSTR pathToFonts = nullptr;
-    if (!SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Fonts, 0, nullptr, &pathToFonts)))
-        return;
+    static const std::wstring kFontUrl = L"https://github.com/99Anvar99/RocketRhythm/fonts/segoeui.ttf";
 
-    std::filesystem::path fontsPath = pathToFonts;
-    CoTaskMemFree(pathToFonts);
-
-    const auto segoePath    = (fontsPath / "segoeui.ttf").string();
-    const auto chinesePath  = (fontsPath / "msyh.ttc").string();   // YaHei
-    const auto japanesePath = (fontsPath / "meiryo.ttc").string();
-    const auto koreanPath   = (fontsPath / "malgun.ttf").string();
-
-    if (!std::filesystem::exists(segoePath))
-        return;
-
-    ImFontConfig base{};
-    base.PixelSnapH = true;
-    base.OversampleH = 2;
-    base.OversampleV = 2;
-
-    ImFontConfig merge{};
-    merge.MergeMode = true;
-    merge.PixelSnapH = true;
-
-    auto addFallbacks = [&](float sizePx)
+    // Kick off downloads once if missing (non-blocking)
+    static std::atomic sDownloadStarted{false};
+    if (!sDownloadStarted.exchange(true))
     {
-        if (std::filesystem::exists(chinesePath))
-            io.Fonts->AddFontFromFileTTF(chinesePath.c_str(), sizePx, &merge, mMergedGlyphRanges.Data);
-        if (std::filesystem::exists(japanesePath))
-            io.Fonts->AddFontFromFileTTF(japanesePath.c_str(), sizePx, &merge, mMergedGlyphRanges.Data);
-        if (std::filesystem::exists(koreanPath))
-            io.Fonts->AddFontFromFileTTF(koreanPath.c_str(), sizePx, &merge, mMergedGlyphRanges.Data);
-    };
+        // Only download what’s missing
+        const bool needOverlay = !std::filesystem::exists(overlayFontFile);
+        const bool needSettings = !std::filesystem::exists(settingsFontFile);
 
-    // Overlay font
-    mFontOverlay = io.Fonts->AddFontFromFileTTF(segoePath.c_str(), 24.0f, &base, mMergedGlyphRanges.Data);
-    if (mFontOverlay) addFallbacks(24.0f);
+        if (needOverlay || needSettings)
+        {
+            std::thread([needOverlay, needSettings, overlayFontFile, settingsFontFile]
+            {
+                // Optional COM init (URLMon may use COM internally; harmless here)
+                CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    // Settings font
-    mFontSettings = io.Fonts->AddFontFromFileTTF(segoePath.c_str(), 16.0f, &base, mMergedGlyphRanges.Data);
-    if (mFontSettings) addFallbacks(16.0f);
+                if (needOverlay)
+                {
+                    std::string err;
+                    if (!DownloadToFile(kFontUrl, overlayFontFile, err))
+                        LOG("Font download failed (Overlay): {}", err);
+                    else
+                        LOG("Font downloaded: {}", overlayFontFile.string());
+                }
 
-    io.Fonts->Build();
+                if (needSettings)
+                {
+                    std::string err;
+                    if (!DownloadToFile(kFontUrl, settingsFontFile, err))
+                        LOG("Font download failed (Settings): {}", err);
+                    else
+                        LOG("Font downloaded: {}", settingsFontFile.string());
+                }
 
-    mFontsInitialized = (mFontOverlay != nullptr) && (mFontSettings != nullptr);
+                CoUninitialize();
+            }).detach();
+        }
+    }
+
+    // Try to load (works whether file existed already or was downloaded earlier)
+    static constexpr auto kOverlayKey = "rr_overlay_24";
+    static constexpr auto kSettingsKey = "rr_settings_16";
+
+    if (!mFontOverlay && std::filesystem::exists(overlayFontFile))
+    {
+        auto [res, font] = gui.LoadFont(kOverlayKey, overlayFontFile.string(), 24);
+        if (res == 2 && font) mFontOverlay = font;
+    }
+    if (!mFontOverlay)
+        mFontOverlay = gui.GetFont(kOverlayKey);
+
+    if (!mFontSettings && std::filesystem::exists(settingsFontFile))
+    {
+        auto [res, font] = gui.LoadFont(kSettingsKey, settingsFontFile.string(), 16);
+        if (res == 2 && font) mFontSettings = font;
+    }
+    if (!mFontSettings)
+        mFontSettings = gui.GetFont(kSettingsKey);
+
+    mFontsInitialized = mFontOverlay != nullptr && mFontSettings != nullptr;
 }
 
 // ------------------------------------------------------------
@@ -576,7 +640,7 @@ void RocketRhythm::DrawAlbumArtPlaceholder(float scale)
     dl->AddRect(pos, ImVec2(pos.x + size, pos.y + size), border, mWindowStyle.albumArtRounding * scale, 0, 2.0f);
 
     // Advance cursor to the right (column layout)
-    ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + (15.0f * scale), 0));
+    ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + 15.0f * scale, 0));
 }
 
 void RocketRhythm::DrawAlbumArt(float scale)
@@ -596,7 +660,7 @@ void RocketRhythm::DrawAlbumArt(float scale)
             const ImU32 border = ImGui::GetColorU32(ImVec4(1, 1, 1, 0.10f));
             dl->AddRect(pos, ImVec2(pos.x + size, pos.y + size), border, mWindowStyle.albumArtRounding * scale, 0, 1.0f);
 
-            ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + (15.0f * scale), 0));
+            ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + 15.0f * scale, 0));
             return;
         }
     }
@@ -773,11 +837,8 @@ void RocketRhythm::DrawHelpMarker(const char* desc)
 
 void RocketRhythm::RenderSettings()
 {
-    auto& io = ImGui::GetIO();
-
-    if (mFontSettings) ImGui::PushFont(mFontSettings);
-    else if (io.Fonts && !io.Fonts->Fonts.empty()) ImGui::PushFont(io.Fonts->Fonts[0]);
-    else ImGui::PushFont(ImGui::GetFont());
+    if (!mFontsInitialized)
+        InitializeFonts();
 
     const std::string& pluginName = GetPluginNameCached();
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(pluginName.c_str()).x) * 0.5f);
@@ -938,8 +999,6 @@ void RocketRhythm::RenderSettings()
     {
         ShellExecuteA(nullptr, "open", "https://github.com/99Anvar99/RocketRhythm", nullptr, nullptr, SW_SHOWNORMAL);
     }
-
-    ImGui::PopFont();
 }
 
 // ------------------------------------------------------------
@@ -975,6 +1034,9 @@ void RocketRhythm::UpdateWindowState()
 void RocketRhythm::RenderWindow()
 {
     if (!mEnabled || !*mEnabled) return;
+
+    if (!mFontsInitialized)
+        InitializeFonts();
 
     static auto lastTime = std::chrono::steady_clock::now();
     const auto now = std::chrono::steady_clock::now();
