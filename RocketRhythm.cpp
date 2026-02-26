@@ -469,6 +469,7 @@ void RocketRhythm::InitializeFonts()
             builder.AddRanges(io.Fonts->GetGlyphRangesCyrillic());
             builder.AddRanges(io.Fonts->GetGlyphRangesJapanese());
             builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+            builder.AddRanges(io.Fonts->GetGlyphRangesVietnamese());
             builder.AddRanges(io.Fonts->GetGlyphRangesKorean());
             builder.BuildRanges(&sGlyphRanges);
         }
