@@ -149,11 +149,10 @@ private:
 		if (manager_)
 		{
 			// Subscribe to current session changes
-			mgrSessionChangedRevoker_ =
-				manager_.CurrentSessionChanged(auto_revoke, [this](const auto&, const auto&)
-				{
-					QueueRefresh(RefreshReason::SessionChanged);
-				});
+			mgrSessionChangedRevoker_ = manager_.CurrentSessionChanged(auto_revoke, [this](const auto&, const auto&)
+			{
+				QueueRefresh(RefreshReason::SessionChanged);
+			});
 
 			// Attach initial session
 			AttachSession(manager_.GetCurrentSession());
@@ -168,11 +167,10 @@ private:
 		{
 			// Wait until something changes
 			{
-				std::unique_lock<std::mutex> lk(cvMutex_);
+				std::unique_lock lk(cvMutex_);
 				cv_.wait(lk, [this]
 				{
-					return stop_.load(std::memory_order_relaxed) ||
-						dirty_.load(std::memory_order_relaxed);
+					return stop_.load(std::memory_order_relaxed) || dirty_.load(std::memory_order_relaxed);
 				});
 
 				dirty_.store(false, std::memory_order_relaxed);
@@ -228,23 +226,20 @@ private:
 		if (!session_) return;
 
 		// Session event subscriptions
-		mediaChangedRevoker_ =
-			session_.MediaPropertiesChanged(auto_revoke, [this](const auto&, const auto&)
-			{
-				QueueRefresh(RefreshReason::MediaChanged);
-			});
+		mediaChangedRevoker_ = session_.MediaPropertiesChanged(auto_revoke, [this](const auto&, const auto&)
+		{
+			QueueRefresh(RefreshReason::MediaChanged);
+		});
 
-		playbackChangedRevoker_ =
-			session_.PlaybackInfoChanged(auto_revoke, [this](const auto&, const auto&)
-			{
-				QueueRefresh(RefreshReason::PlaybackChanged);
-			});
+		playbackChangedRevoker_ = session_.PlaybackInfoChanged(auto_revoke, [this](const auto&, const auto&)
+		{
+			QueueRefresh(RefreshReason::PlaybackChanged);
+		});
 
-		timelineChangedRevoker_ =
-			session_.TimelinePropertiesChanged(auto_revoke, [this](const auto&, const auto&)
-			{
-				QueueRefresh(RefreshReason::TimelineChanged);
-			});
+		timelineChangedRevoker_ = session_.TimelinePropertiesChanged(auto_revoke, [this](const auto&, const auto&)
+		{
+			QueueRefresh(RefreshReason::TimelineChanged);
+		});
 	}
 
 	void DetachSession()
@@ -272,8 +267,7 @@ private:
 			const auto timeline = session_.GetTimelineProperties();
 			const auto media = session_.TryGetMediaPropertiesAsync().get();
 
-			local.isPlaying =
-				playback.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
+			local.isPlaying = playback.PlaybackStatus() == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing;
 
 			local.title = to_string(media.Title());
 			local.artist = to_string(media.Artist());
@@ -284,9 +278,7 @@ private:
 
 			local.durationSec = static_cast<int>(dur);
 			local.positionSec = static_cast<int>(pos);
-			local.progress01 = (local.durationSec > 0)
-				                   ? std::clamp(local.positionSec / static_cast<float>(local.durationSec), 0.0f, 1.0f)
-				                   : 0.0f;
+			local.progress01 = local.durationSec > 0 ? std::clamp(local.positionSec / static_cast<float>(local.durationSec), 0.0f, 1.0f) : 0.0f;
 
 			// Album art: only on track change (or first load), and only if thumbnail exists
 			const std::string songKey = local.title + "|" + local.artist + "|" + local.album;
