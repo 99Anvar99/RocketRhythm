@@ -22,15 +22,15 @@
 
 std::shared_ptr<CVarManagerWrapper> _globalCvarManager;
 
-static const auto plugin_version =
+static constexpr auto plugin_version =
     std::string(stringify(VERSION_MAJOR)) + "." +
     stringify(VERSION_MINOR) + "." +
     stringify(VERSION_PATCH) + "." +
     stringify(VERSION_BUILD);
 
-static constexpr const char* kConfigFileName = "config.json";
-static constexpr const char* kConfigDir      = "RocketRhythm";
-static constexpr const char* kPluginNameStr  = "RocketRhythm";
+static constexpr auto kConfigFileName = "config.json";
+static constexpr auto kConfigDir = "RocketRhythm";
+static constexpr auto kPluginNameStr = "RocketRhythm";
 
 BAKKESMOD_PLUGIN(RocketRhythm, "RocketRhythm", plugin_version.c_str(), PLUGINTYPE_THREADED)
 
@@ -96,7 +96,7 @@ static bool IsValidImageFile(const std::string& path)
 
 static nlohmann::json ImVec4ToJson(const ImVec4& c)
 {
-    return nlohmann::json::array({ c.x, c.y, c.z, c.w });
+    return nlohmann::json::array({c.x, c.y, c.z, c.w});
 }
 
 static bool JsonToImVec4(const nlohmann::json& j, ImVec4& out)
@@ -137,8 +137,7 @@ static void DrawPingPongMarqueeText(
     const ImVec4& color,
     float availableWidth,
     float speedPxPerSec,
-    float waitTimeSec,
-    ImFont* font = nullptr
+    float waitTimeSec
 )
 {
     if (!text || !*text)
@@ -158,8 +157,6 @@ static void DrawPingPongMarqueeText(
     const float overflow = textW - availableWidth;
 
     dl->PushClipRect(pos, ImVec2(pos.x + availableWidth, pos.y + lineH), true);
-
-    if (font) ImGui::PushFont(font);
     const ImU32 col = ImGui::GetColorU32(color);
 
     if (overflow <= 0.0f || speedPxPerSec <= 0.0f)
@@ -187,8 +184,6 @@ static void DrawPingPongMarqueeText(
 
         dl->AddText(ImVec2(pos.x - offset, pos.y), col, text);
     }
-
-    if (font) ImGui::PopFont();
     dl->PopClipRect();
 }
 
@@ -200,30 +195,30 @@ void to_json(nlohmann::json& j, const RocketRhythm::WindowStyle& s)
 {
     j = nlohmann::json{
         {"background_color", ImVec4ToJson(s.backgroundColor)},
-        {"accent_color",     ImVec4ToJson(s.accentColor)},
-        {"accent_color2",    ImVec4ToJson(s.accentColor2)},
-        {"text_color",       ImVec4ToJson(s.textColor)},
-        {"text_color_dim",   ImVec4ToJson(s.textColorDim)},
+        {"accent_color", ImVec4ToJson(s.accentColor)},
+        {"accent_color2", ImVec4ToJson(s.accentColor2)},
+        {"text_color", ImVec4ToJson(s.textColor)},
+        {"text_color_dim", ImVec4ToJson(s.textColorDim)},
         {"text_color_faint", ImVec4ToJson(s.textColorFaint)},
 
-        {"window_rounding",       s.windowRounding},
-        {"album_art_rounding",    s.albumArtRounding},
-        {"progress_bar_height",   s.progressBarHeight},
+        {"window_rounding", s.windowRounding},
+        {"album_art_rounding", s.albumArtRounding},
+        {"progress_bar_height", s.progressBarHeight},
         {"progress_bar_rounding", s.progressBarRounding},
-        {"album_art_size",        s.albumArtSize},
+        {"album_art_size", s.albumArtSize},
 
-        {"enable_pulse",     s.enablePulse},
-        {"show_album_art",   s.showAlbumArt},
-        {"show_progress_bar",s.showProgressBar},
-        {"show_album_info",  s.showAlbumInfo},
-        {"window_opacity",   s.windowOpacity},
+        {"enable_pulse", s.enablePulse},
+        {"show_album_art", s.showAlbumArt},
+        {"show_progress_bar", s.showProgressBar},
+        {"show_album_info", s.showAlbumInfo},
+        {"window_opacity", s.windowOpacity},
 
-        {"ui_scale",            s.uiScale},
+        {"ui_scale", s.uiScale},
         {"enable_auto_scaling", s.enableAutoScaling},
-        {"min_scale",           s.minScale},
-        {"max_scale",           s.maxScale},
+        {"min_scale", s.minScale},
+        {"max_scale", s.maxScale},
 
-        {"enable_marquee",   s.enableMarquee},
+        {"enable_marquee", s.enableMarquee},
         {"marquee_speed_px", s.marqueeSpeedPx},
         {"marquee_wait_sec", s.marqueeWaitSec},
         {"time_display_mode", static_cast<int>(s.timeDisplayMode)},
@@ -241,40 +236,44 @@ void from_json(const nlohmann::json& j, RocketRhythm::WindowStyle& s)
     auto loadColor = [&](const char* key, ImVec4& target, const ImVec4& fallback)
     {
         auto it = j.find(key);
-        if (it == j.end()) { target = fallback; return; }
+        if (it == j.end())
+        {
+            target = fallback;
+            return;
+        }
         ImVec4 tmp;
         if (JsonToImVec4(*it, tmp)) target = tmp;
         else target = fallback;
     };
 
     loadColor("background_color", s.backgroundColor, def.backgroundColor);
-    loadColor("accent_color",     s.accentColor,     def.accentColor);
-    loadColor("accent_color2",    s.accentColor2,    def.accentColor2);
-    loadColor("text_color",       s.textColor,       def.textColor);
-    loadColor("text_color_dim",   s.textColorDim,    def.textColorDim);
-    loadColor("text_color_faint", s.textColorFaint,  def.textColorFaint);
+    loadColor("accent_color", s.accentColor, def.accentColor);
+    loadColor("accent_color2", s.accentColor2, def.accentColor2);
+    loadColor("text_color", s.textColor, def.textColor);
+    loadColor("text_color_dim", s.textColorDim, def.textColorDim);
+    loadColor("text_color_faint", s.textColorFaint, def.textColorFaint);
 
     int tdm = static_cast<int>(def.timeDisplayMode);
     tdm = std::clamp(tdm, 0, 1);
 
-    AssignIfNumberOrBool(j, "window_rounding",       s.windowRounding);
-    AssignIfNumberOrBool(j, "album_art_rounding",    s.albumArtRounding);
-    AssignIfNumberOrBool(j, "progress_bar_height",   s.progressBarHeight);
+    AssignIfNumberOrBool(j, "window_rounding", s.windowRounding);
+    AssignIfNumberOrBool(j, "album_art_rounding", s.albumArtRounding);
+    AssignIfNumberOrBool(j, "progress_bar_height", s.progressBarHeight);
     AssignIfNumberOrBool(j, "progress_bar_rounding", s.progressBarRounding);
-    AssignIfNumberOrBool(j, "album_art_size",        s.albumArtSize);
+    AssignIfNumberOrBool(j, "album_art_size", s.albumArtSize);
 
-    AssignIfNumberOrBool(j, "enable_pulse",          s.enablePulse);
-    AssignIfNumberOrBool(j, "show_album_art",        s.showAlbumArt);
-    AssignIfNumberOrBool(j, "show_progress_bar",     s.showProgressBar);
-    AssignIfNumberOrBool(j, "show_album_info",       s.showAlbumInfo);
-    AssignIfNumberOrBool(j, "window_opacity",        s.windowOpacity);
+    AssignIfNumberOrBool(j, "enable_pulse", s.enablePulse);
+    AssignIfNumberOrBool(j, "show_album_art", s.showAlbumArt);
+    AssignIfNumberOrBool(j, "show_progress_bar", s.showProgressBar);
+    AssignIfNumberOrBool(j, "show_album_info", s.showAlbumInfo);
+    AssignIfNumberOrBool(j, "window_opacity", s.windowOpacity);
 
-    AssignIfNumberOrBool(j, "ui_scale",              s.uiScale);
-    AssignIfNumberOrBool(j, "enable_auto_scaling",   s.enableAutoScaling);
-    AssignIfNumberOrBool(j, "min_scale",             s.minScale);
-    AssignIfNumberOrBool(j, "max_scale",             s.maxScale);
+    AssignIfNumberOrBool(j, "ui_scale", s.uiScale);
+    AssignIfNumberOrBool(j, "enable_auto_scaling", s.enableAutoScaling);
+    AssignIfNumberOrBool(j, "min_scale", s.minScale);
+    AssignIfNumberOrBool(j, "max_scale", s.maxScale);
 
-    AssignIfNumberOrBool(j, "enable_marquee",   s.enableMarquee);
+    AssignIfNumberOrBool(j, "enable_marquee", s.enableMarquee);
     AssignIfNumberOrBool(j, "marquee_speed_px", s.marqueeSpeedPx);
     AssignIfNumberOrBool(j, "marquee_wait_sec", s.marqueeWaitSec);
     AssignIfNumberOrBool(j, "time_display_mode", tdm);
@@ -283,16 +282,16 @@ void from_json(const nlohmann::json& j, RocketRhythm::WindowStyle& s)
 
     s.windowOpacity = clampf(s.windowOpacity, 0.0f, 1.0f);
 
-    s.uiScale   = clampf(s.uiScale, 0.5f, 2.0f);
-    s.minScale  = clampf(s.minScale, 0.1f, 10.0f);
-    s.maxScale  = clampf(s.maxScale, 0.1f, 10.0f);
+    s.uiScale = clampf(s.uiScale, 0.5f, 2.0f);
+    s.minScale = clampf(s.minScale, 0.1f, 10.0f);
+    s.maxScale = clampf(s.maxScale, 0.1f, 10.0f);
     if (s.minScale > s.maxScale) std::swap(s.minScale, s.maxScale);
 
-    s.windowRounding      = clampf(s.windowRounding, 0.0f, 50.0f);
-    s.albumArtRounding    = clampf(s.albumArtRounding, 0.0f, 50.0f);
-    s.progressBarHeight   = clampf(s.progressBarHeight, 0.0f, 50.0f);
+    s.windowRounding = clampf(s.windowRounding, 0.0f, 50.0f);
+    s.albumArtRounding = clampf(s.albumArtRounding, 0.0f, 50.0f);
+    s.progressBarHeight = clampf(s.progressBarHeight, 0.0f, 50.0f);
     s.progressBarRounding = clampf(s.progressBarRounding, 0.0f, 50.0f);
-    s.albumArtSize        = clampf(s.albumArtSize, 16.0f, 512.0f);
+    s.albumArtSize = clampf(s.albumArtSize, 16.0f, 512.0f);
 
     s.marqueeSpeedPx = clampf(s.marqueeSpeedPx, 0.0f, 1000.0f);
     s.marqueeWaitSec = clampf(s.marqueeWaitSec, 0.0f, 10.0f);
@@ -320,7 +319,8 @@ void RocketRhythm::onLoad()
     mUiScaleCvar = std::make_shared<float>(1.0f);
 
     cvarManager->registerCvar("rr_enabled", "1", "Enable RocketRhythm").bindTo(mEnabled);
-    cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).bindTo(mUiScaleCvar);
+    cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).
+                 bindTo(mUiScaleCvar);
 
     LoadConfig();
 
@@ -382,13 +382,14 @@ void RocketRhythm::InitializeFonts()
 
     auto gui = gameWrapper->GetGUIManager();
 
-    const std::filesystem::path bmData    = gameWrapper->GetDataFolder();
-    const std::filesystem::path fontDir   = bmData / "fonts" / "RocketRhythm";
-    const std::filesystem::path fontFile  = fontDir / "segoeui.ttf";
+    const std::filesystem::path bmData = gameWrapper->GetDataFolder();
+    const std::filesystem::path fontDir = bmData / "fonts" / "RocketRhythm";
+    const std::filesystem::path fontFile = fontDir / "segoeui.ttf";
 
-    static const std::wstring kFontUrl = L"https://raw.githubusercontent.com/99Anvar99/RocketRhythm/main/fonts/segoeui.ttf";
+    static const std::wstring kFontUrl =
+        LR"(https://raw.githubusercontent.com/99Anvar99/RocketRhythm/main/fonts/segoeui.ttf)";
 
-    const std::string fontRel = "RocketRhythm/segoeui.ttf";
+    static constexpr auto kFontRel = R"(RocketRhythm/segoeui.ttf)";
 
     // Ensure directory exists
     std::error_code ec;
@@ -398,7 +399,7 @@ void RocketRhythm::InitializeFonts()
         LOG("Failed to create fonts dir: {} ({})", fontDir.string(), ec.message());
     }
 
-    static std::atomic_bool sDownloadInFlight{ false };
+    static std::atomic_bool sDownloadInFlight{false};
 
     const bool haveFontFile = std::filesystem::exists(fontFile);
 
@@ -407,7 +408,7 @@ void RocketRhythm::InitializeFonts()
         // capture only what we need by value
         const std::wstring urlCopy = kFontUrl;
         const std::filesystem::path dstFinal = fontFile;
-        const std::filesystem::path dstTemp  = fontDir / "segoeui.tmp";
+        const std::filesystem::path dstTemp = fontDir / "segoeui.tmp";
 
         std::thread([urlCopy, dstFinal, dstTemp]()
         {
@@ -451,14 +452,14 @@ void RocketRhythm::InitializeFonts()
     }
 
     // Try to load whenever the file exists (this will naturally succeed on later frames)
-    static constexpr auto kOverlayKey  = "rr_overlay_24";
+    static constexpr auto kOverlayKey = "rr_overlay_24";
     static constexpr auto kSettingsKey = "rr_settings_16";
 
     if (std::filesystem::exists(fontFile))
     {
         // Build ranges once
         static ImVector<ImWchar> sGlyphRanges;
-        static std::atomic_bool sRangesBuilt{ false };
+        static std::atomic_bool sRangesBuilt{false};
 
         if (!sRangesBuilt.exchange(true))
         {
@@ -476,14 +477,14 @@ void RocketRhythm::InitializeFonts()
 
         if (!mFontOverlay)
         {
-            auto [res, font] = gui.LoadFont(kOverlayKey, fontRel, 24, nullptr, sGlyphRanges.Data);
+            auto [res, font] = gui.LoadFont(kOverlayKey, kFontRel, 24, nullptr, sGlyphRanges.Data);
             if ((res == 0 || res == 2) && font) mFontOverlay = font;
             if (!mFontOverlay) mFontOverlay = gui.GetFont(kOverlayKey);
         }
 
         if (!mFontSettings)
         {
-            auto [res, font] = gui.LoadFont(kSettingsKey, fontRel, 16, nullptr, sGlyphRanges.Data);
+            auto [res, font] = gui.LoadFont(kSettingsKey, kFontRel, 16, nullptr, sGlyphRanges.Data);
             if ((res == 0 || res == 2) && font) mFontSettings = font;
             if (!mFontSettings) mFontSettings = gui.GetFont(kSettingsKey);
         }
@@ -498,8 +499,11 @@ void RocketRhythm::InitializeFonts()
 
 void RocketRhythm::LoadAlbumArt(const std::string& path)
 {
-    if (path.empty() || !IsValidImageFile(path))
+    if (path.empty())
     {
+        if (!mAlbumArtLoaded && !mAlbumArtTexture && mAlbumArtPath.empty())
+            return;
+
         mAlbumArtLoaded = false;
         mAlbumArtTexture.reset();
         mAlbumArtPath.clear();
@@ -508,6 +512,14 @@ void RocketRhythm::LoadAlbumArt(const std::string& path)
 
     if (mAlbumArtLoaded && mAlbumArtTexture && mAlbumArtPath == path)
         return;
+
+    if (!IsValidImageFile(path))
+    {
+        mAlbumArtLoaded = false;
+        mAlbumArtTexture.reset();
+        mAlbumArtPath.clear();
+        return;
+    }
 
     try
     {
@@ -571,6 +583,7 @@ int RocketRhythm::GetCurrentDisplayPositionSec()
 float RocketRhythm::GetDpiScaleFactor()
 {
     HDC screen = GetDC(nullptr);
+    if (!screen) return 1.0f;
     const float dpiScaleX = static_cast<float>(GetDeviceCaps(screen, LOGPIXELSX)) / 96.0f;
     ReleaseDC(nullptr, screen);
     return dpiScaleX;
@@ -603,11 +616,6 @@ float RocketRhythm::GetEffectiveScaleFactor()
     scale *= mWindowStyle.uiScale;
 
     return std::clamp(scale, 0.5f, 3.0f);
-}
-
-float RocketRhythm::GetScaledValue(float baseValue)
-{
-    return baseValue * GetEffectiveScaleFactor();
 }
 
 // ------------------------------------------------------------
@@ -661,8 +669,7 @@ void RocketRhythm::DrawAlbumArtPlaceholder(float scale)
 
 void RocketRhythm::DrawAlbumArt(float scale)
 {
-    if (mMediaState.hasAlbumArt && !mMediaState.albumArtPath.empty())
-        LoadAlbumArt(mMediaState.albumArtPath);
+    LoadAlbumArt(mMediaState.hasAlbumArt ? mMediaState.albumArtPath : std::string{});
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -674,7 +681,8 @@ void RocketRhythm::DrawAlbumArt(float scale)
         {
             ImGui::Image(tex, ImVec2(size, size));
             const ImU32 border = ImGui::GetColorU32(ImVec4(1, 1, 1, 0.10f));
-            dl->AddRect(pos, ImVec2(pos.x + size, pos.y + size), border, mWindowStyle.albumArtRounding * scale, 0, 1.0f);
+            dl->AddRect(pos, ImVec2(pos.x + size, pos.y + size), border, mWindowStyle.albumArtRounding * scale, 0,
+                        1.0f);
 
             ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(size + 15.0f * scale, 0));
             return;
@@ -688,7 +696,7 @@ void RocketRhythm::DrawAlbumArt(float scale)
 // Drawing (progress bar)
 // ------------------------------------------------------------
 
-void RocketRhythm::DrawProgressBar()
+void RocketRhythm::DrawProgressBar(float scale)
 {
     if (!mWindowStyle.showProgressBar || mMediaState.durationSec <= 0) return;
 
@@ -698,12 +706,12 @@ void RocketRhythm::DrawProgressBar()
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const float width  = ImGui::GetContentRegionAvail().x;
-    const float height = GetScaledValue(mWindowStyle.progressBarHeight);
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float height = mWindowStyle.progressBarHeight * scale;
 
     const ImU32 bgCol = ImGui::GetColorU32(ImVec4(0.15f, 0.15f, 0.20f, 0.8f));
 
-    float bgRounding = GetScaledValue(mWindowStyle.progressBarRounding);
+    float bgRounding = mWindowStyle.progressBarRounding * scale;
     bgRounding = std::min(bgRounding, height * 0.5f);
 
     // Background
@@ -723,7 +731,7 @@ void RocketRhythm::DrawProgressBar()
             fillColor.z *= pulse;
         }
 
-        float fillRounding = GetScaledValue(mWindowStyle.progressBarRounding);
+        float fillRounding = mWindowStyle.progressBarRounding * scale;
         fillRounding = std::min(fillRounding, height * 0.5f);
         fillRounding = std::min(fillRounding, fillWidth * 0.5f);
 
@@ -735,12 +743,12 @@ void RocketRhythm::DrawProgressBar()
     }
 
     // Time labels
-    const float yText = pos.y + height + GetScaledValue(4.0f);
+    const float yText = pos.y + height + 4.0f * scale;
     const ImU32 textCol = ImGui::GetColorU32(mWindowStyle.textColorDim);
 
     if (mWindowStyle.timeDisplayMode == WindowStyle::TimeDisplayMode::Corners)
     {
-        const std::string leftTime  = FormatTimeSeconds(currentPos);
+        const std::string leftTime = FormatTimeSeconds(currentPos);
         const std::string rightTime = FormatTimeSeconds(mMediaState.durationSec);
 
         dl->AddText(ImVec2(pos.x, yText), textCol, leftTime.c_str());
@@ -760,19 +768,19 @@ void RocketRhythm::DrawProgressBar()
     }
 
     // Reserve space (text line + spacing)
-    ImGui::Dummy(ImVec2(width, ImGui::GetTextLineHeight() + GetScaledValue(12.0f)));
+    ImGui::Dummy(ImVec2(width, ImGui::GetTextLineHeight() + 12.0f * scale));
 }
 
 // ------------------------------------------------------------
 // Drawing (music state)
 // ------------------------------------------------------------
 
-void RocketRhythm::DrawMusicStateCompact()
+void RocketRhythm::DrawMusicStateCompact(float scale)
 {
     if (mFontOverlay) ImGui::PushFont(mFontOverlay);
 
-    const float speed = mWindowStyle.marqueeSpeedPx * GetEffectiveScaleFactor();
-    const float wait  = mWindowStyle.marqueeWaitSec;
+    const float speed = mWindowStyle.marqueeSpeedPx * scale;
+    const float wait = mWindowStyle.marqueeWaitSec;
 
     // Title
     if (!mMediaState.title.empty())
@@ -785,7 +793,7 @@ void RocketRhythm::DrawMusicStateCompact()
         }
 
         if (mWindowStyle.enableMarquee)
-            DrawPingPongMarqueeText(mMediaState.title.c_str(), c, ImGui::GetContentRegionAvail().x, speed, wait, mFontOverlay);
+            DrawPingPongMarqueeText(mMediaState.title.c_str(), c, ImGui::GetContentRegionAvail().x, speed, wait);
         else
             ImGui::TextColored(c, "%s", mMediaState.title.c_str());
     }
@@ -794,7 +802,8 @@ void RocketRhythm::DrawMusicStateCompact()
     if (!mMediaState.artist.empty())
     {
         if (mWindowStyle.enableMarquee)
-            DrawPingPongMarqueeText(mMediaState.artist.c_str(), mWindowStyle.textColorDim, ImGui::GetContentRegionAvail().x, speed, wait, mFontOverlay);
+            DrawPingPongMarqueeText(mMediaState.artist.c_str(), mWindowStyle.textColorDim,
+                                    ImGui::GetContentRegionAvail().x, speed, wait);
         else
             ImGui::TextColored(mWindowStyle.textColorDim, "%s", mMediaState.artist.c_str());
     }
@@ -803,7 +812,8 @@ void RocketRhythm::DrawMusicStateCompact()
     if (mWindowStyle.showAlbumInfo && !mMediaState.album.empty())
     {
         if (mWindowStyle.enableMarquee)
-            DrawPingPongMarqueeText(mMediaState.album.c_str(), mWindowStyle.textColorFaint, ImGui::GetContentRegionAvail().x, speed, wait, mFontOverlay);
+            DrawPingPongMarqueeText(mMediaState.album.c_str(), mWindowStyle.textColorFaint,
+                                    ImGui::GetContentRegionAvail().x, speed, wait);
         else
             ImGui::TextColored(mWindowStyle.textColorFaint, "%s", mMediaState.album.c_str());
     }
@@ -811,7 +821,7 @@ void RocketRhythm::DrawMusicStateCompact()
     ImGui::Spacing();
 
     if (mWindowStyle.showProgressBar && mMediaState.durationSec > 0)
-        DrawProgressBar();
+        DrawProgressBar(scale);
 
     if (mFontOverlay) ImGui::PopFont();
 }
@@ -822,10 +832,10 @@ void RocketRhythm::DrawNoMusicState()
     const ImVec2 center(ws.x * 0.5f, ws.y * 0.5f);
 
     auto mainText = "No Music Playing";
-    auto subText  = "Play a song to see track info";
+    auto subText = "Play a song to see track info";
 
     const float mainW = ImGui::CalcTextSize(mainText).x;
-    const float subW  = ImGui::CalcTextSize(subText).x;
+    const float subW = ImGui::CalcTextSize(subText).x;
 
     ImGui::SetCursorPos(ImVec2(center.x - mainW * 0.5f, center.y - 20));
     ImGui::TextColored(mWindowStyle.textColorFaint, "%s", mainText);
@@ -884,11 +894,6 @@ void RocketRhythm::RenderSettings()
     ImGui::TextColored(mWindowStyle.accentColor, "Media Status");
     ImGui::Text("Player: %s", mMedia ? "Connected" : "Disconnected");
     ImGui::Text("State: %s", mMediaState.isPlaying ? "Playing" : (!mMediaState.title.empty() ? "Paused" : "No Media"));
-    if (!mMediaState.title.empty())
-    {
-        ImGui::Text("Track: %s", mMediaState.title.c_str());
-        if (!mMediaState.artist.empty()) ImGui::Text("Artist: %s", mMediaState.artist.c_str());
-    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -1013,7 +1018,12 @@ void RocketRhythm::RenderSettings()
 
     if (ImGui::Button("View On GitHub"))
     {
-        ShellExecuteA(nullptr, "open", "https://github.com/99Anvar99/RocketRhythm", nullptr, nullptr, SW_SHOWNORMAL);
+        ShellExecuteA(nullptr, "open", R"(https://github.com/99Anvar99/RocketRhythm)", nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    
+    if (ImGui::Button("View Home Page"))
+    {
+        ShellExecuteA(nullptr, "open", R"(https://rocket-rhythm-website.vercel.app)", nullptr, nullptr, SW_SHOWNORMAL);
     }
 }
 
@@ -1068,7 +1078,7 @@ void RocketRhythm::RenderWindow()
     float baseHeight = 130.0f;
     if (mWindowStyle.showAlbumArt)
     {
-        baseWidth  = mWindowStyle.albumArtSize + 15.0f + 235.0f + 15.0f;
+        baseWidth = mWindowStyle.albumArtSize + 15.0f + 235.0f + 15.0f;
         baseHeight = std::max(mWindowStyle.albumArtSize + 20.0f, 140.0f);
     }
 
@@ -1099,9 +1109,9 @@ void RocketRhythm::RenderWindow()
     if (mFontOverlay) ImGui::PushFont(mFontOverlay);
 
     if (ImGui::Begin("##RocketRhythmWindow", nullptr,
-        ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoScrollbar))
+                     ImGuiWindowFlags_NoCollapse |
+                     ImGuiWindowFlags_NoTitleBar |
+                     ImGuiWindowFlags_NoScrollbar))
     {
         const ImVec2 currentWindowSize = ImGui::GetWindowSize();
         const float dynamicScaleX = currentWindowSize.x / baseWidth;
@@ -1128,12 +1138,12 @@ void RocketRhythm::RenderWindow()
                 DrawAlbumArt(dynamicScale);
 
                 ImGui::NextColumn();
-                DrawMusicStateCompact();
+                DrawMusicStateCompact(dynamicScale);
                 ImGui::Columns(1);
             }
             else
             {
-                DrawMusicStateCompact();
+                DrawMusicStateCompact(dynamicScale);
             }
         }
     }
@@ -1152,10 +1162,7 @@ void RocketRhythm::RenderWindow()
 
 void RocketRhythm::RenderCanvas(const CanvasWrapper& canvas)
 {
-    static auto lastTime = std::chrono::steady_clock::now();
-    const auto now = std::chrono::steady_clock::now();
-    const float dt = std::chrono::duration<float>(now - lastTime).count();
-    lastTime = now;
+    (void)canvas;
 
     if (mMedia)
     {
@@ -1164,7 +1171,6 @@ void RocketRhythm::RenderCanvas(const CanvasWrapper& canvas)
         mIsNotPlaying = !mMediaState.isPlaying && mMediaState.title.empty();
     }
 
-    UpdateAnimation(dt);
     UpdateWindowState();
 
     const std::string& menuName = GetMenuNameCached();

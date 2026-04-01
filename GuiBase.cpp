@@ -5,56 +5,56 @@
 
 std::string SettingsWindowBase::GetPluginName()
 {
-	return "RocketRhythm";
+    return "RocketRhythm";
 }
 
 void SettingsWindowBase::SetImGuiContext(uintptr_t ctx)
 {
-	ImGui::SetCurrentContext(reinterpret_cast<ImGuiContext*>(ctx));
+    ImGui::SetCurrentContext(reinterpret_cast<ImGuiContext*>(ctx));
 }
 
 std::string PluginWindowBase::GetMenuName()
 {
-	return "RocketRhythm";
+    return "RocketRhythm";
 }
 
 std::string PluginWindowBase::GetMenuTitle()
 {
-	return menu_title;
+    return menu_title;
 }
 
 void PluginWindowBase::SetImGuiContext(uintptr_t ctx)
 {
-	ImGui::SetCurrentContext(reinterpret_cast<ImGuiContext*>(ctx));
+    ImGui::SetCurrentContext(reinterpret_cast<ImGuiContext*>(ctx));
 }
 
 bool PluginWindowBase::ShouldBlockInput()
 {
-	return ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard;
+    return ImGui::GetIO().WantCaptureMouse || ImGui::GetIO().WantCaptureKeyboard;
 }
 
 bool PluginWindowBase::IsActiveOverlay()
 {
-	// If you don't want the overlay to close when a user presses esc, change this function to return false
-	return false;
+    // If you don't want the overlay to close when a user presses esc, change this function to return false
+    return false;
 }
 
 void PluginWindowBase::OnOpen()
 {
-	isWindowOpen_ = true;
+    isWindowOpen_ = true;
 }
 
 void PluginWindowBase::OnClose()
 {
-	isWindowOpen_ = false;
+    isWindowOpen_ = false;
 }
 
 void PluginWindowBase::Render()
 {
-	RenderWindow();
+    RenderWindow();
 
-	if (!isWindowOpen_)
-	{
-		_globalCvarManager->executeCommand("openmenu " + GetMenuName());
-	}
+    if (!isWindowOpen_)
+    {
+        _globalCvarManager->executeCommand("openmenu " + GetMenuName());
+    }
 }

@@ -80,10 +80,11 @@ public:
         Args&&... args
     )
         : type(t)
-        , content(std::vformat(fmt, std::make_format_args(args...)))
-        , dismiss_time(dismiss)
-        , creation_time(NotifyClock::now())
-    {}
+          , content(std::vformat(fmt, std::make_format_args(args...)))
+          , dismiss_time(dismiss)
+          , creation_time(NotifyClock::now())
+    {
+    }
 
     ImVec4 get_color() const;
     NotifyClock::duration elapsed() const;
@@ -109,7 +110,7 @@ namespace ImGui
 // ==============================
 
 template <typename... Args>
-inline void notify(ImGuiToastType type, float duration, std::string_view fmt, Args&&... args)
+void notify(ImGuiToastType type, float duration, std::string_view fmt, Args&&... args)
 {
     ImGui::insert_notification(
         ImGuiToast(type, duration, fmt, std::forward<Args>(args)...)
@@ -117,13 +118,13 @@ inline void notify(ImGuiToastType type, float duration, std::string_view fmt, Ar
 }
 
 template <typename... Args>
-inline void notify(ImGuiToastType type, std::chrono::milliseconds duration, std::string_view fmt, Args&&... args)
+void notify(ImGuiToastType type, std::chrono::milliseconds duration, std::string_view fmt, Args&&... args)
 {
     notify(type, static_cast<float>(duration.count()), fmt, std::forward<Args>(args)...);
 }
 
 template <typename... Args>
-inline void notify(ImGuiToastType type, std::string_view fmt, Args&&... args)
+void notify(ImGuiToastType type, std::string_view fmt, Args&&... args)
 {
     notify(type, NOTIFY_DEFAULT_DISMISS, fmt, std::forward<Args>(args)...);
 }

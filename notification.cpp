@@ -2,7 +2,7 @@
 #include "notification.h"
 
 using Clock = std::chrono::steady_clock;
-using Ms    = std::chrono::milliseconds;
+using Ms = std::chrono::milliseconds;
 
 std::mutex ImGui::g_notification_mutex;
 std::vector<ImGuiToast> ImGui::notifications;
@@ -16,12 +16,12 @@ ImVec4 ImGuiToast::get_color() const
 {
     switch (type)
     {
-        case Success: return { 0.f, 1.f, 0.f, 1.f };
-        case Warning: return { 1.f, 1.f, 0.f, 1.f };
-        case Error:   return { 1.f, 0.f, 0.f, 1.f };
-        case Info:    return { 0.f, 0.62f, 1.f, 1.f };
+    case Success: return {0.f, 1.f, 0.f, 1.f};
+    case Warning: return {1.f, 1.f, 0.f, 1.f};
+    case Error: return {1.f, 0.f, 0.f, 1.f};
+    case Info: return {0.f, 0.62f, 1.f, 1.f};
     }
-    return { 1.f, 1.f, 1.f, 1.f };
+    return {1.f, 1.f, 1.f, 1.f};
 }
 
 Clock::duration ImGuiToast::elapsed() const
@@ -32,13 +32,13 @@ Clock::duration ImGuiToast::elapsed() const
 NotifyPhase ImGuiToast::get_phase() const
 {
     const float t = ToMs(elapsed());
-    const float fade = NOTIFY_FADE_IN_OUT_TIME;
+    constexpr float fade = NOTIFY_FADE_IN_OUT_TIME;
     const float total = fade + dismiss_time + fade;
 
-    if (t >= total)                         return NotifyPhase::Expired;
-    if (t >= fade + dismiss_time)           return NotifyPhase::FadeOut;
-    if (t >= fade)                          return NotifyPhase::Wait;
-    if (repeats && t < NOTIFY_FLASH_TIME)   return NotifyPhase::Flash;
+    if (t >= total) return NotifyPhase::Expired;
+    if (t >= fade + dismiss_time) return NotifyPhase::FadeOut;
+    if (t >= fade) return NotifyPhase::Wait;
+    if (repeats && t < NOTIFY_FLASH_TIME) return NotifyPhase::Flash;
     return NotifyPhase::FadeIn;
 }
 
@@ -49,14 +49,14 @@ float ImGuiToast::get_opacity() const
 
     switch (get_phase())
     {
-        case NotifyPhase::FadeIn:
-            return t / fade * NOTIFY_OPACITY;
+    case NotifyPhase::FadeIn:
+        return t / fade * NOTIFY_OPACITY;
 
-        case NotifyPhase::FadeOut:
-            return (1.f - (t - fade - dismiss_time) / fade) * NOTIFY_OPACITY;
+    case NotifyPhase::FadeOut:
+        return (1.f - (t - fade - dismiss_time) / fade) * NOTIFY_OPACITY;
 
-        default:
-            return NOTIFY_OPACITY;
+    default:
+        return NOTIFY_OPACITY;
     }
 }
 
@@ -101,11 +101,11 @@ namespace ImGui
             const ImVec4 color = toast.get_color();
 
             SetNextWindowBgAlpha(opacity);
-            SetNextWindowSize({ display.x / 6.f, 0.f });
+            SetNextWindowSize({display.x / 6.f, 0.f});
             SetNextWindowPos(
-                { display.x - NOTIFY_PADDING_X, NOTIFY_PADDING_Y + y_offset },
+                {display.x - NOTIFY_PADDING_X, NOTIFY_PADDING_Y + y_offset},
                 ImGuiCond_Always,
-                { 1.f, 0.f }
+                {1.f, 0.f}
             );
 
             if (Begin(std::format("##TOAST{}", i).c_str(), nullptr, notify_default_toast_flags))
@@ -143,7 +143,7 @@ namespace ImGui
 
                 GetBackgroundDrawList()->AddRectFilled(
                     bar_pos,
-                    { bar_pos.x + bar_width, bar_pos.y + 3.f },
+                    {bar_pos.x + bar_width, bar_pos.y + 3.f},
                     ImColor(color)
                 );
             }
