@@ -667,25 +667,48 @@ int RocketRhythm::GetCurrentDisplayPositionSec()
     const auto now = std::chrono::steady_clock::now();
 
     const std::string trackKey = mMediaState.title + "|" + mMediaState.artist + "|" + mMediaState.album;
+    const int duration = std::max(0, mMediaState.durationSec);
+    const int rawPosition = std::clamp(mMediaState.positionSec, 0, duration);
 
-    // Re-anchor when track changes or position updates externally
-    if (trackKey != mLastTrackKey || mMediaState.positionSec != mLastPositionSec)
+    if (trackKey != mLastTrackKey)
     {
         mLastTrackKey = trackKey;
-        mLastPositionSec = mMediaState.positionSec;
-        mAnchoredPositionSec = mMediaState.positionSec;
+        mLastPositionSec = rawPosition;
+        mAnchoredPositionSec = rawPosition;
         mLastProgressAnchor = now;
     }
 
-    if (!mMediaState.isPlaying || mMediaState.durationSec <= 0)
+    if (!mMediaState.isPlaying || duration <= 0)
     {
-        return std::clamp(mMediaState.positionSec, 0, (mMediaState.durationSec > 0 ? mMediaState.durationSec : 0));
+        mLastPositionSec = rawPosition;
+        mAnchoredPositionSec = rawPosition;
+        mLastProgressAnchor = now;
+        return rawPosition;
     }
 
     const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - mLastProgressAnchor).count();
-    const int predicted = mAnchoredPositionSec + static_cast<int>(elapsedMs / 1000);
+    int predicted = std::clamp(mAnchoredPositionSec + static_cast<int>(elapsedMs / 1000), 0, duration);
 
-    return std::clamp(predicted, 0, mMediaState.durationSec);
+    if (rawPosition != mLastPositionSec)
+    {
+        const int drift = rawPosition - predicted;
+
+        // Media APIs can report a stale position shortly after our local clock has advanced.
+        // Ignore only small backward drift; large backward jumps are treated as real seeks.
+        if (drift >= 0 || drift <= -5)
+        {
+            mLastPositionSec = rawPosition;
+            mAnchoredPositionSec = rawPosition;
+            mLastProgressAnchor = now;
+            predicted = rawPosition;
+        }
+        else
+        {
+            mLastPositionSec = rawPosition;
+        }
+    }
+
+    return predicted;
 }
 
 // ------------------------------------------------------------
@@ -1344,79 +1367,55 @@ void RocketRhythm::RenderModernSettings()
 void RocketRhythm::RenderSettingsTabBar()
 {
     const std::string& pluginName = GetPluginNameCached();
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    const float availableWidth = ImGui::GetContentRegionAvail().x;
-    const float availableHeight = std::max(360.0f, ImGui::GetContentRegionAvail().y);
-    const float sidebarWidth = 148.0f;
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 sidebarBg = ImGui::GetColorU32(ImVec4(0.035f, 0.045f, 0.065f, 0.96f));
-    const ImU32 contentBg = ImGui::GetColorU32(ImVec4(0.020f, 0.025f, 0.035f, 0.98f));
-    const ImU32 border = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.06f));
-    dl->AddRectFilled(origin, ImVec2(origin.x + availableWidth, origin.y + availableHeight), contentBg, 8.0f);
-    dl->AddRectFilled(origin, ImVec2(origin.x + sidebarWidth, origin.y + availableHeight), sidebarBg, 8.0f, ImDrawCornerFlags_Left);
-    dl->AddLine(ImVec2(origin.x + sidebarWidth, origin.y), ImVec2(origin.x + sidebarWidth, origin.y + availableHeight), border);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 5.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 7.0f));
 
-    ImGui::Columns(2, "settings_shell", false);
-    ImGui::SetColumnWidth(0, sidebarWidth);
-
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10.0f);
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.accentColor);
     ImGui::Text("%s", pluginName.c_str());
     ImGui::PopStyleColor();
 
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorFaint);
+    ImGui::SameLine();
     ImGui::Text("v%s", plugin_version.c_str());
     ImGui::PopStyleColor();
 
     ImGui::Spacing();
 
-    auto navButton = [&](int tab, const char* label)
+    if (ImGui::BeginTabBar("RocketRhythmSettingsTabs", ImGuiTabBarFlags_FittingPolicyResizeDown))
     {
-        const bool selected = mSettingsTab == tab;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
-        ImGui::PushStyleColor(ImGuiCol_Button, selected ? ImVec4(0.09f, 0.27f, 0.34f, 1.0f) : ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? ImVec4(0.11f, 0.34f, 0.42f, 1.0f) : ImVec4(0.10f, 0.12f, 0.16f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.08f, 0.35f, 0.44f, 1.0f));
-        if (ImGui::Button(label, ImVec2(sidebarWidth - 16.0f, 30.0f)))
-            mSettingsTab = tab;
-        ImGui::PopStyleColor(3);
-    };
+        if (ImGui::BeginTabItem("General"))
+        {
+            mSettingsTab = 0;
+            RenderGeneralTab();
+            ImGui::EndTabItem();
+        }
 
-    navButton(0, "General");
-    navButton(1, "Appearance");
-    navButton(2, "Spotify");
-    navButton(3, "About");
+        if (ImGui::BeginTabItem("Appearance"))
+        {
+            mSettingsTab = 1;
+            RenderAppearanceTab();
+            ImGui::EndTabItem();
+        }
 
-    ImGui::NextColumn();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+        if (ImGui::BeginTabItem("Spotify"))
+        {
+            mSettingsTab = 2;
+            RenderSpotifyTab();
+            ImGui::EndTabItem();
+        }
 
-    const char* titles[] = {"General", "Appearance", "Spotify", "About"};
-    const char* subtitles[] = {
-        "Plugin state, media source, and scaling",
-        "Overlay colors, layout, motion, and time display",
-        "Authorization, metadata override, and playback controls",
-        "Version and project links"
-    };
+        if (ImGui::BeginTabItem("About"))
+        {
+            mSettingsTab = 3;
+            RenderAboutTab();
+            ImGui::EndTabItem();
+        }
 
-    const int tabIndex = std::clamp(mSettingsTab, 0, 3);
-    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColor);
-    ImGui::Text("%s", titles[tabIndex]);
-    ImGui::PopStyleColor();
-    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorFaint);
-    ImGui::Text("%s", subtitles[tabIndex]);
-    ImGui::PopStyleColor();
-    ImGui::Spacing();
+        ImGui::EndTabBar();
+    }
 
-    if (tabIndex == 0) RenderGeneralTab();
-    else if (tabIndex == 1) RenderAppearanceTab();
-    else if (tabIndex == 2) RenderSpotifyTab();
-    else RenderAboutTab();
-
-    ImGui::Columns(1);
+    ImGui::PopStyleVar(2);
 }
 
 void RocketRhythm::RenderSectionHeader(const char* title, const char* subtitle)
@@ -1438,29 +1437,19 @@ void RocketRhythm::RenderSectionHeader(const char* title, const char* subtitle)
 
 bool RocketRhythm::BeginSettingsCard(const char* title, const char* icon, ImVec4 accentColor)
 {
-    ImVec4 borderColor = accentColor.w > 0 ? accentColor : mWindowStyle.accentColor;
+    ImVec4 titleColor = accentColor.w > 0 ? accentColor : mWindowStyle.accentColor;
 
     ImGui::PushID(title);
     ImGui::BeginGroup();
 
-    const ImVec2 start = ImGui::GetCursorScreenPos();
-    const float width = ImGui::GetContentRegionAvail().x;
-    const float lineHeight = ImGui::GetTextLineHeight() + ImGui::GetStyle().FramePadding.y * 2.0f;
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(start, ImVec2(start.x + width, start.y + lineHeight),
-                      ImGui::GetColorU32(ImVec4(0.11f, 0.11f, 0.14f, 0.85f)), 5.0f);
-    dl->AddRectFilled(start, ImVec2(start.x + 3.0f, start.y + lineHeight),
-                      ImGui::GetColorU32(borderColor), 5.0f);
-
-    ImGui::SetCursorScreenPos(ImVec2(start.x + 9.0f, start.y + ImGui::GetStyle().FramePadding.y));
-    ImGui::PushStyleColor(ImGuiCol_Text, borderColor);
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, titleColor);
     if (icon && *icon)
         ImGui::Text("%s %s", icon, title);
     else
         ImGui::Text("%s", title);
     ImGui::PopStyleColor();
-
-    ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + lineHeight + 5.0f));
+    ImGui::Spacing();
 
     return true;
 }
@@ -1483,8 +1472,6 @@ void RocketRhythm::RenderColorPicker(const char* label, ImVec4& color)
 
 void RocketRhythm::RenderGeneralTab()
 {
-    ImGui::Columns(2, "general_columns", false);
-
     if (BeginSettingsCard("Plugin", "General"))
     {
         bool enabledValue = mEnabled ? *mEnabled : true;
@@ -1527,8 +1514,6 @@ void RocketRhythm::RenderGeneralTab()
         EndSettingsCard();
     }
 
-    ImGui::NextColumn();
-
     if (BeginSettingsCard("Now Playing", "Media"))
     {
         ImGui::TextColored(mWindowStyle.textColorDim, "Source");
@@ -1566,14 +1551,10 @@ void RocketRhythm::RenderGeneralTab()
 
         EndSettingsCard();
     }
-
-    ImGui::Columns(1);
 }
 
 void RocketRhythm::RenderAppearanceTab()
 {
-    ImGui::Columns(2, "appearance_columns", false);
-
     if (BeginSettingsCard("Colors", "Color"))
     {
         RenderColorPicker("Background", mWindowStyle.backgroundColor);
@@ -1601,8 +1582,6 @@ void RocketRhythm::RenderAppearanceTab()
 
         EndSettingsCard();
     }
-
-    ImGui::NextColumn();
 
     if (BeginSettingsCard("Layout", "Display"))
     {
@@ -1647,8 +1626,6 @@ void RocketRhythm::RenderAppearanceTab()
 
         EndSettingsCard();
     }
-
-    ImGui::Columns(1);
 
     ImGui::Spacing();
     float btnWidth = 112;
@@ -1698,8 +1675,6 @@ void RocketRhythm::RenderSpotifyTab()
 
     bool isAuthenticated = mSpotify->IsAuthenticated();
     ImVec4 spotifyGreen = ImVec4(0.13f, 0.74f, 0.35f, 1.0f);
-
-    ImGui::Columns(isAuthenticated ? 2 : 1, "spotify_columns", false);
 
     if (BeginSettingsCard(isAuthenticated ? "Connection" : "Spotify Authentication",
                           isAuthenticated ? "Status" : "Auth", spotifyGreen))
@@ -1830,8 +1805,6 @@ void RocketRhythm::RenderSpotifyTab()
 
     if (isAuthenticated && mShowSpotifyControls)
     {
-        ImGui::NextColumn();
-
         if (BeginSettingsCard("Playback Controls", "Controls", spotifyGreen))
         {
             float btnWidth = 72;
@@ -1875,8 +1848,6 @@ void RocketRhythm::RenderSpotifyTab()
             EndSettingsCard();
         }
     }
-
-    ImGui::Columns(1);
 }
 
 void RocketRhythm::RenderAboutTab()
@@ -1960,7 +1931,47 @@ void RocketRhythm::UpdateFromSpotify()
     spotifyState.artist = track.artist;
     spotifyState.album = track.album;
     spotifyState.durationSec = std::max(0, track.durationMs / 1000);
-    spotifyState.positionSec = std::clamp(track.positionMs / 1000, 0, spotifyState.durationSec);
+
+    const auto now = std::chrono::steady_clock::now();
+    const std::string trackKey = !track.id.empty()
+                                     ? track.id
+                                     : (track.title + "|" + track.artist + "|" + track.album);
+    const bool newTrack = trackKey != mLastSpotifyTrackKey;
+    const int durationMs = std::max(0, track.durationMs);
+    const int rawPositionMs = std::clamp(track.positionMs, 0, durationMs);
+    const bool reportedPositionChanged = newTrack || rawPositionMs != mLastSpotifyReportedPositionMs;
+    int predictedPositionMs = rawPositionMs;
+    if (!newTrack && durationMs > 0)
+    {
+        const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - mLastSpotifyPositionAnchor).count();
+        predictedPositionMs = std::clamp(
+            mLastSpotifyPositionMs + static_cast<int>(std::max<int64_t>(0, elapsedMs)),
+            0,
+            durationMs);
+    }
+    const int driftMs = rawPositionMs - predictedPositionMs;
+
+    if (newTrack || !track.isPlaying || (reportedPositionChanged && (driftMs >= 1000 || driftMs <= -5000)))
+    {
+        mLastSpotifyTrackKey = trackKey;
+        mLastSpotifyPositionMs = rawPositionMs;
+        mLastSpotifyPositionAnchor = now;
+    }
+    mLastSpotifyReportedPositionMs = rawPositionMs;
+
+    int displayPositionMs = mLastSpotifyPositionMs;
+    if (track.isPlaying && durationMs > 0)
+    {
+        const auto anchoredElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - mLastSpotifyPositionAnchor).count();
+        displayPositionMs = std::clamp(
+            mLastSpotifyPositionMs + static_cast<int>(std::max<int64_t>(0, anchoredElapsedMs)),
+            0,
+            durationMs);
+    }
+
+    spotifyState.positionSec = std::clamp(displayPositionMs / 1000, 0, spotifyState.durationSec);
     spotifyState.progress01 = spotifyState.durationSec > 0
                                   ? std::clamp(spotifyState.positionSec / static_cast<float>(spotifyState.durationSec),
                                                0.0f, 1.0f)

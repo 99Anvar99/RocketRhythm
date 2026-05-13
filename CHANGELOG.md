@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.1] - 2026-05-13
+
+### Improved
+- Cleaned up the settings UI with a simpler compact tab layout to avoid broken column state and visual divider artifacts.
+- Improved Spotify playback progress handling so timestamps advance smoothly between API polls.
+- Improved general media progress smoothing so stale media positions no longer cause small backward jumps.
+
+### Fixed
+- Fixed Spotify polling causing the displayed timestamp to jump backwards when the API returned slightly stale progress data.
+- Fixed settings UI layout issues caused by the custom sidebar shell and nested ImGui columns.
+- Fixed the BakkesPlugins release package workflow to continue generating an upload-ready zip after Release builds.
+
 ## [2.0.0] - 2026-05-12
 
 ### Added

@@ -104,6 +104,7 @@
             <Command>set OUTDIR=%APPDATA%\bakkesmod\bakkesmod\plugins
                 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
                 copy /Y "$(TargetPath)" "%OUTDIR%\$(TargetFileName)"
+                powershell.exe -ExecutionPolicy Bypass -NoProfile -NonInteractive -File "$(ProjectDir)package_bakkesplugins.ps1" -ProjectDir "$(MSBuildProjectDirectory)" -OutputDir "dist" -PluginDll "$(TargetPath)"
             </Command>
         </PostBuildEvent>
     </ItemDefinitionGroup>
@@ -156,6 +157,9 @@
     </ItemGroup>
     <ItemGroup>
         <ResourceCompile Include="RocketRhythm.rc"/>
+    </ItemGroup>
+    <ItemGroup>
+      <Content Include="package_bakkesplugins.ps1" />
     </ItemGroup>
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
     <ImportGroup Label="ExtensionTargets">

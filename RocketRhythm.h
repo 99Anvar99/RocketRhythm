@@ -128,6 +128,10 @@ private:
     std::atomic_bool mSpotifyConfigSavePending{false};
     std::string mSpotifyClientIdInput;
     std::string mSpotifyClientSecretInput;
+    std::string mLastSpotifyTrackKey;
+    int mLastSpotifyPositionMs = 0;
+    int mLastSpotifyReportedPositionMs = -1;
+    std::chrono::steady_clock::time_point mLastSpotifyPositionAnchor{};
     mutable std::mutex mSpotifyMutex;
 
     // ---------------------------
