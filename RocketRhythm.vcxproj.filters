@@ -87,6 +87,9 @@
     <ClCompile Include="media.cpp">
       <Filter>Plugin\src</Filter>
     </ClCompile>
+    <ClCompile Include="spotify_integration.cpp">
+      <Filter>Plugin\src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="imgui\imgui_rangeslider.h">
@@ -150,6 +153,9 @@
       <Filter>Plugin\header</Filter>
     </ClInclude>
     <ClInclude Include="media.h">
+      <Filter>Plugin\header</Filter>
+    </ClInclude>
+    <ClInclude Include="spotify_integration.h">
       <Filter>Plugin\header</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,16 +1,20 @@
 #pragma once
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <chrono>
 #include <nlohmann/json_fwd.hpp>
 #include "GuiBase.h"
 #include "media.h"
+#include "spotify_integration.h"
 #include "bakkesmod/plugin/bakkesmodplugin.h"
 #include "IMGUI/imgui.h"
 #include "bakkesmod/wrappers/wrapperstructs.h"
 #include "bakkesmod/wrappers/ImageWrapper.h"
 
-inline constexpr int kPluginConfigVersion = 10;
+inline constexpr int kPluginConfigVersion = 11;
 
 class RocketRhythm : public BakkesMod::Plugin::BakkesModPlugin, public SettingsWindowBase, public PluginWindowBase
 {
@@ -107,8 +111,30 @@ private:
     std::shared_ptr<ImageWrapper> mAlbumArtTexture;
     bool mAlbumArtLoaded = false;
     std::string mAlbumArtPath;
+    std::string mSpotifyAlbumArtUrl;
+    std::string mSpotifyAlbumArtPath;
+    bool mSpotifyAlbumArtDownloadInFlight = false;
+    std::thread mSpotifyAlbumArtThread;
+    mutable std::mutex mSpotifyAlbumArtMutex;
 
     WindowStyle mWindowStyle{};
+
+    // ---------------------------
+    // Spotify Integration
+    // ---------------------------
+    std::unique_ptr<rrspotify::SpotifyIntegration> mSpotify;
+    bool mSpotifyEnabled = false;
+    bool mShowSpotifyControls = true;
+    std::atomic_bool mSpotifyConfigSavePending{false};
+    std::string mSpotifyClientIdInput;
+    std::string mSpotifyClientSecretInput;
+    mutable std::mutex mSpotifyMutex;
+
+    // ---------------------------
+    // Modern Settings UI State
+    // ---------------------------
+    int mSettingsTab = 0; // 0=General, 1=Appearance, 2=Spotify, 3=About
+    bool mSettingsInitialized = false;
 
     // ---------------------------
     // Helpers / rendering
@@ -117,12 +143,14 @@ private:
     const std::string& GetPluginNameCached();
 
     void DrawHelpMarker(const char* desc);
+    void DrawHelpMarkerIcon(const char* icon, const char* desc);
 
     bool ShouldShowWindow() const;
     void UpdateWindowState();
 
     void InitializeFonts();
     void LoadAlbumArt(const std::string& path);
+    std::string GetSpotifyAlbumArtPath(const rrspotify::SpotifyTrackInfo& track);
 
     void UpdateAnimation(float deltaTime);
 
@@ -139,9 +167,29 @@ private:
     void DrawMusicStateCompact(float scale);
     void DrawProgressBar(float scale);
 
+    // Modern Settings UI
+    void RenderModernSettings();
+    void RenderSettingsTabBar();
+    void RenderGeneralTab();
+    void RenderAppearanceTab();
+    void RenderSpotifyTab();
+    void RenderAboutTab();
+
+    // Card/Panel helpers for modern UI
+    bool BeginSettingsCard(const char* title, const char* icon = nullptr, ImVec4 accentColor = ImVec4(0, 0, 0, 0));
+    void EndSettingsCard();
+    void RenderColorPicker(const char* label, ImVec4& color);
+    void RenderSectionHeader(const char* title, const char* subtitle = nullptr);
+
+    // Spotify helpers
+    void InitializeSpotify();
+    void UpdateFromSpotify();
+
     // Persistence
     void SaveConfig();
     void LoadConfig();
+    void SaveSpotifyConfig();
+    void LoadSpotifyConfig();
 
     friend void to_json(nlohmann::json& j, const WindowStyle& s);
     friend void from_json(const nlohmann::json& j, WindowStyle& s);

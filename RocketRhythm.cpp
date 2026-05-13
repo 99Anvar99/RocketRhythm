@@ -6,11 +6,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <sstream>
 #include <string>
+#include <utility>
 #include <Windows.h>
 
 #include <nlohmann/json.hpp>
@@ -92,6 +96,40 @@ static bool IsValidImageFile(const std::string& path)
     {
         return false;
     }
+}
+
+static std::string HashStringStable(const std::string& text)
+{
+    uint64_t h = 14695981039346656037ull;
+    for (unsigned char c : text)
+    {
+        h ^= static_cast<uint64_t>(c);
+        h *= 1099511628211ull;
+    }
+
+    char buf[17]{};
+    snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+    return std::string(buf);
+}
+
+static std::string ImageExtensionFromUrl(const std::string& url)
+{
+    const size_t query = url.find('?');
+    const std::string clean = url.substr(0, query == std::string::npos ? url.size() : query);
+    const size_t dot = clean.find_last_of('.');
+    if (dot == std::string::npos)
+        return ".jpg";
+
+    std::string ext = clean.substr(dot);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c)
+    {
+        return static_cast<char>(std::tolower(c));
+    });
+
+    if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp" || ext == ".bmp")
+        return ext;
+
+    return ".jpg";
 }
 
 static nlohmann::json ImVec4ToJson(const ImVec4& c)
@@ -322,6 +360,7 @@ void RocketRhythm::onLoad()
     cvarManager->registerCvar("rr_uiscale", "1.0", "UI Scale factor", true, true, 0.5f, true, 2.0f).
                  bindTo(mUiScaleCvar);
 
+    InitializeSpotify();
     LoadConfig();
 
     gameWrapper->RegisterDrawable([this](const CanvasWrapper& canvas) { RenderCanvas(canvas); });
@@ -332,6 +371,17 @@ void RocketRhythm::onLoad()
 void RocketRhythm::onUnload()
 {
     SaveConfig();
+    SaveSpotifyConfig();
+
+    if (mSpotify)
+    {
+        mSpotify->StopPolling();
+    }
+
+    if (mSpotifyAlbumArtThread.joinable())
+    {
+        mSpotifyAlbumArtThread.join();
+    }
 
     mAlbumArtTexture.reset();
     cvarManager->removeCvar("rr_enabled");
@@ -544,6 +594,68 @@ void RocketRhythm::LoadAlbumArt(const std::string& path)
         mAlbumArtPath.clear();
         LOG("Album art load error: {}", e.what());
     }
+}
+
+std::string RocketRhythm::GetSpotifyAlbumArtPath(const rrspotify::SpotifyTrackInfo& track)
+{
+    if (track.albumArtUrl.empty() || !gameWrapper)
+        return {};
+
+    {
+        std::lock_guard<std::mutex> lock(mSpotifyAlbumArtMutex);
+        if (track.albumArtUrl == mSpotifyAlbumArtUrl && !mSpotifyAlbumArtPath.empty())
+            return mSpotifyAlbumArtPath;
+
+        if (track.albumArtUrl != mSpotifyAlbumArtUrl)
+        {
+            if (mSpotifyAlbumArtDownloadInFlight)
+                return {};
+
+            mSpotifyAlbumArtUrl = track.albumArtUrl;
+            mSpotifyAlbumArtPath.clear();
+        }
+    }
+
+    const std::filesystem::path cacheDir = gameWrapper->GetDataFolder() / kConfigDir / "spotify_album_cache";
+    const std::filesystem::path cachePath =
+        cacheDir / (HashStringStable(track.albumArtUrl) + ImageExtensionFromUrl(track.albumArtUrl));
+
+    if (IsValidImageFile(cachePath.string()))
+    {
+        std::lock_guard<std::mutex> lock(mSpotifyAlbumArtMutex);
+        if (track.albumArtUrl == mSpotifyAlbumArtUrl)
+            mSpotifyAlbumArtPath = cachePath.string();
+        return cachePath.string();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mSpotifyAlbumArtMutex);
+        if (mSpotifyAlbumArtDownloadInFlight)
+            return {};
+
+        mSpotifyAlbumArtDownloadInFlight = true;
+    }
+
+    if (mSpotifyAlbumArtThread.joinable())
+    {
+        mSpotifyAlbumArtThread.join();
+    }
+
+    const std::string url = track.albumArtUrl;
+    mSpotifyAlbumArtThread = std::thread([this, url, cachePath]()
+    {
+        std::string err;
+        const bool ok = DownloadToFile(ToWide(url), cachePath, err) && IsValidImageFile(cachePath.string());
+
+        std::lock_guard<std::mutex> lock(mSpotifyAlbumArtMutex);
+        if (url == mSpotifyAlbumArtUrl)
+        {
+            mSpotifyAlbumArtPath = ok ? cachePath.string() : std::string{};
+        }
+        mSpotifyAlbumArtDownloadInFlight = false;
+    });
+
+    return {};
 }
 
 // ------------------------------------------------------------
@@ -861,170 +973,59 @@ void RocketRhythm::DrawHelpMarker(const char* desc)
     }
 }
 
+void RocketRhythm::DrawHelpMarkerIcon(const char* icon, const char* desc)
+{
+    ImGui::Text("%s", icon);
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
 void RocketRhythm::RenderSettings()
 {
     if (!mFontsInitialized)
         InitializeFonts();
 
-    const std::string& pluginName = GetPluginNameCached();
-    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ImGui::CalcTextSize(pluginName.c_str()).x) * 0.5f);
-    ImGui::TextColored(mWindowStyle.accentColor, "%s", pluginName.c_str());
+    // Apply modern styling
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(7, 4));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(7, 5));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
 
-    ImGui::Separator();
+    // Push modern colors
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.20f, 0.24f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.25f, 0.25f, 0.30f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, mWindowStyle.accentColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, mWindowStyle.accentColor2);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(
+        mWindowStyle.accentColor.x * 0.9f,
+        mWindowStyle.accentColor.y * 0.9f,
+        mWindowStyle.accentColor.z * 0.9f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, mWindowStyle.accentColor);
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, mWindowStyle.accentColor2);
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, mWindowStyle.accentColor);
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.20f, 0.20f, 0.24f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.30f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.30f, 0.30f, 0.35f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, mWindowStyle.accentColor2);
+    ImGui::PushStyleColor(ImGuiCol_TabActive, mWindowStyle.accentColor);
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocused, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, ImVec4(0.20f, 0.20f, 0.24f, 1.0f));
 
-    // Enable
-    bool enabledValue = mEnabled ? *mEnabled : true;
-    if (ImGui::Checkbox("Enable Plugin", &enabledValue))
-    {
-        if (mEnabled) *mEnabled = enabledValue;
-        mNeedsWindowOpen = false;
-        mNeedsWindowClose = false;
-    }
-    ImGui::SameLine();
-    DrawHelpMarker("Toggle the entire plugin on/off");
+    RenderModernSettings();
 
-    ImGui::Checkbox("Hide When Not Playing", &mHideWhenNotPlaying);
-    ImGui::SameLine();
-    DrawHelpMarker("Automatically hide overlay when no music is playing");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::TextColored(mWindowStyle.accentColor, "Media Status");
-    ImGui::Text("Player: %s", mMedia ? "Connected" : "Disconnected");
-    ImGui::Text("State: %s", mMediaState.isPlaying ? "Playing" : (!mMediaState.title.empty() ? "Paused" : "No Media"));
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::TextColored(mWindowStyle.accentColor, "UI Scaling");
-
-    ImGui::Checkbox("Enable Auto Scaling", &mWindowStyle.enableAutoScaling);
-    ImGui::SameLine();
-    DrawHelpMarker("Automatically scale UI based on screen resolution and DPI");
-
-    if (mWindowStyle.enableAutoScaling)
-    {
-        ImGui::SliderFloat("Min Scale", &mWindowStyle.minScale, 0.5f, 1.5f, "%.2f");
-        ImGui::SameLine();
-        DrawHelpMarker("Minimum scaling factor for auto-scaling");
-
-        ImGui::SliderFloat("Max Scale", &mWindowStyle.maxScale, 1.0f, 3.0f, "%.2f");
-        ImGui::SameLine();
-        DrawHelpMarker("Maximum scaling factor for auto-scaling");
-    }
-
-    if (ImGui::SliderFloat("UI Scale Multiplier", &mWindowStyle.uiScale, 0.5f, 2.0f, "%.2f"))
-    {
-        if (mUiScaleCvar) *mUiScaleCvar = mWindowStyle.uiScale;
-    }
-    ImGui::SameLine();
-    DrawHelpMarker("Manual UI scale multiplier (applies on top of auto-scaling)");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::TextColored(mWindowStyle.accentColor, "Appearance");
-
-    ImGui::ColorEdit4("Background", &mWindowStyle.backgroundColor.x, ImGuiColorEditFlags_NoInputs);
-    ImGui::SameLine();
-    ImGui::ColorEdit4("Accent", &mWindowStyle.accentColor.x, ImGuiColorEditFlags_NoInputs);
-
-    ImGui::Checkbox("Show Album Art", &mWindowStyle.showAlbumArt);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Progress Bar", &mWindowStyle.showProgressBar);
-    ImGui::SameLine();
-    ImGui::Checkbox("Show Album Info", &mWindowStyle.showAlbumInfo);
-
-    ImGui::SliderFloat("Album Art Size", &mWindowStyle.albumArtSize, 80.0f, 150.0f, "%.0f px");
-    ImGui::SliderFloat("Window Rounding", &mWindowStyle.windowRounding, 0.0f, 30.0f, "%.0f");
-    ImGui::SliderFloat("Opacity", &mWindowStyle.windowOpacity, 0.5f, 1.0f, "%.2f");
-
-    ImGui::Spacing();
-    ImGui::Checkbox("Enable Pulse Effect", &mWindowStyle.enablePulse);
-    ImGui::SameLine();
-    DrawHelpMarker("Adds a subtle pulse animation to the progress bar and title when music is playing");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::TextColored(mWindowStyle.accentColor, "Text / Marquee");
-
-    ImGui::Checkbox("Enable Marquee Scrolling", &mWindowStyle.enableMarquee);
-    ImGui::SameLine();
-    DrawHelpMarker("When enabled, long title/artist/album text scrolls left-right with pauses.");
-
-    ImGui::SliderFloat("Marquee Speed", &mWindowStyle.marqueeSpeedPx, 10.0f, 200.0f, "%.0f px/sec");
-    ImGui::SameLine();
-    DrawHelpMarker("Scroll speed for overflowing text (before scaling).");
-
-    ImGui::SliderFloat("Marquee Wait", &mWindowStyle.marqueeWaitSec, 0.0f, 2.0f, "%.2f sec");
-    ImGui::SameLine();
-    DrawHelpMarker("Pause duration at each end before reversing.");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::TextColored(mWindowStyle.accentColor, "Time Display");
-
-    int mode = static_cast<int>(mWindowStyle.timeDisplayMode);
-    const char* items[] = {"Centered (0:10 / 3:45)", "Corners (0:10 ... 3:45)"};
-
-    if (ImGui::Combo("Time Display", &mode, items, IM_ARRAYSIZE(items)))
-    {
-        mode = std::clamp(mode, 0, 1);
-        mWindowStyle.timeDisplayMode = static_cast<WindowStyle::TimeDisplayMode>(mode);
-    }
-
-    ImGui::SameLine();
-    DrawHelpMarker("Choose whether time is centered as \"current / total\" or shown at the left/right edges.");
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    if (ImGui::Button("Save Config", ImVec2(120, 30)))
-    {
-        SaveConfig();
-        notify(Info, "{}: Config Saved!", kPluginNameStr);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load Config", ImVec2(120, 30)))
-    {
-        LoadConfig();
-        notify(Info, "{}: Config Loaded!", kPluginNameStr);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset to Defaults", ImVec2(140, 30)))
-    {
-        if (mEnabled) *mEnabled = true;
-        mHideWhenNotPlaying = true;
-        mWindowStyle = DefaultWindowStyle();
-        if (mUiScaleCvar) *mUiScaleCvar = mWindowStyle.uiScale;
-        notify(Info, "{}: Settings Reset To Default!", kPluginNameStr);
-    }
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    ImGui::Text("Developed By: Mister9982");
-    ImGui::Text("Version: %s", plugin_version.c_str());
-
-    if (ImGui::Button("View On GitHub"))
-    {
-        ShellExecuteA(nullptr, "open", R"(https://github.com/99Anvar99/RocketRhythm)", nullptr, nullptr, SW_SHOWNORMAL);
-    }
-    
-    if (ImGui::Button("View Home Page"))
-    {
-        ShellExecuteA(nullptr, "open", R"(https://rocket-rhythm-website.vercel.app)", nullptr, nullptr, SW_SHOWNORMAL);
-    }
+    ImGui::PopStyleColor(17);
+    ImGui::PopStyleVar(7);
 }
 
 // ------------------------------------------------------------
@@ -1168,7 +1169,14 @@ void RocketRhythm::RenderCanvas(const CanvasWrapper& canvas)
     {
         mMedia->Update();
         mMediaState = mMedia->GetState();
-        mIsNotPlaying = !mMediaState.isPlaying && mMediaState.title.empty();
+    }
+
+    UpdateFromSpotify();
+    mIsNotPlaying = !mMediaState.isPlaying && mMediaState.title.empty();
+
+    if (mSpotifyConfigSavePending.exchange(false))
+    {
+        SaveSpotifyConfig();
     }
 
     UpdateWindowState();
@@ -1275,6 +1283,7 @@ void RocketRhythm::LoadConfig()
             *mUiScaleCvar = mWindowStyle.uiScale;
             SaveConfig();
             LOG("Config not found; created default config");
+            LoadSpotifyConfig();
             return;
         }
 
@@ -1282,6 +1291,7 @@ void RocketRhythm::LoadConfig()
         if (!file)
         {
             LOG("Error loading config: could not open file: {}", path.string());
+            LoadSpotifyConfig();
             return;
         }
 
@@ -1295,6 +1305,7 @@ void RocketRhythm::LoadConfig()
             LOG("Config version mismatch (have {}, want {}); resetting to defaults", version, kPluginConfigVersion);
             *mUiScaleCvar = mWindowStyle.uiScale;
             SaveConfig();
+            LoadSpotifyConfig();
             return;
         }
 
@@ -1313,5 +1324,759 @@ void RocketRhythm::LoadConfig()
         LOG("Error loading config: {}", e.what());
         *mUiScaleCvar = mWindowStyle.uiScale;
         SaveConfig();
+    }
+
+    // Load Spotify config
+    LoadSpotifyConfig();
+}
+
+// ------------------------------------------------------------
+// Modern Settings UI Implementation
+// ------------------------------------------------------------
+
+void RocketRhythm::RenderModernSettings()
+{
+    ImGui::PushFont(mFontSettings);
+    RenderSettingsTabBar();
+    ImGui::PopFont();
+}
+
+void RocketRhythm::RenderSettingsTabBar()
+{
+    const std::string& pluginName = GetPluginNameCached();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float availableWidth = ImGui::GetContentRegionAvail().x;
+    const float availableHeight = std::max(360.0f, ImGui::GetContentRegionAvail().y);
+    const float sidebarWidth = 148.0f;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 sidebarBg = ImGui::GetColorU32(ImVec4(0.035f, 0.045f, 0.065f, 0.96f));
+    const ImU32 contentBg = ImGui::GetColorU32(ImVec4(0.020f, 0.025f, 0.035f, 0.98f));
+    const ImU32 border = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 0.06f));
+    dl->AddRectFilled(origin, ImVec2(origin.x + availableWidth, origin.y + availableHeight), contentBg, 8.0f);
+    dl->AddRectFilled(origin, ImVec2(origin.x + sidebarWidth, origin.y + availableHeight), sidebarBg, 8.0f, ImDrawCornerFlags_Left);
+    dl->AddLine(ImVec2(origin.x + sidebarWidth, origin.y), ImVec2(origin.x + sidebarWidth, origin.y + availableHeight), border);
+
+    ImGui::Columns(2, "settings_shell", false);
+    ImGui::SetColumnWidth(0, sidebarWidth);
+
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10.0f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.accentColor);
+    ImGui::Text("%s", pluginName.c_str());
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorFaint);
+    ImGui::Text("v%s", plugin_version.c_str());
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    auto navButton = [&](int tab, const char* label)
+    {
+        const bool selected = mSettingsTab == tab;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, selected ? ImVec4(0.09f, 0.27f, 0.34f, 1.0f) : ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? ImVec4(0.11f, 0.34f, 0.42f, 1.0f) : ImVec4(0.10f, 0.12f, 0.16f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.08f, 0.35f, 0.44f, 1.0f));
+        if (ImGui::Button(label, ImVec2(sidebarWidth - 16.0f, 30.0f)))
+            mSettingsTab = tab;
+        ImGui::PopStyleColor(3);
+    };
+
+    navButton(0, "General");
+    navButton(1, "Appearance");
+    navButton(2, "Spotify");
+    navButton(3, "About");
+
+    ImGui::NextColumn();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+
+    const char* titles[] = {"General", "Appearance", "Spotify", "About"};
+    const char* subtitles[] = {
+        "Plugin state, media source, and scaling",
+        "Overlay colors, layout, motion, and time display",
+        "Authorization, metadata override, and playback controls",
+        "Version and project links"
+    };
+
+    const int tabIndex = std::clamp(mSettingsTab, 0, 3);
+    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColor);
+    ImGui::Text("%s", titles[tabIndex]);
+    ImGui::PopStyleColor();
+    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorFaint);
+    ImGui::Text("%s", subtitles[tabIndex]);
+    ImGui::PopStyleColor();
+    ImGui::Spacing();
+
+    if (tabIndex == 0) RenderGeneralTab();
+    else if (tabIndex == 1) RenderAppearanceTab();
+    else if (tabIndex == 2) RenderSpotifyTab();
+    else RenderAboutTab();
+
+    ImGui::Columns(1);
+}
+
+void RocketRhythm::RenderSectionHeader(const char* title, const char* subtitle)
+{
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.accentColor);
+    ImGui::Text("%s", title);
+    ImGui::PopStyleColor();
+
+    if (subtitle)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorFaint);
+        ImGui::TextWrapped("%s", subtitle);
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Spacing();
+}
+
+bool RocketRhythm::BeginSettingsCard(const char* title, const char* icon, ImVec4 accentColor)
+{
+    ImVec4 borderColor = accentColor.w > 0 ? accentColor : mWindowStyle.accentColor;
+
+    ImGui::PushID(title);
+    ImGui::BeginGroup();
+
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float lineHeight = ImGui::GetTextLineHeight() + ImGui::GetStyle().FramePadding.y * 2.0f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(start, ImVec2(start.x + width, start.y + lineHeight),
+                      ImGui::GetColorU32(ImVec4(0.11f, 0.11f, 0.14f, 0.85f)), 5.0f);
+    dl->AddRectFilled(start, ImVec2(start.x + 3.0f, start.y + lineHeight),
+                      ImGui::GetColorU32(borderColor), 5.0f);
+
+    ImGui::SetCursorScreenPos(ImVec2(start.x + 9.0f, start.y + ImGui::GetStyle().FramePadding.y));
+    ImGui::PushStyleColor(ImGuiCol_Text, borderColor);
+    if (icon && *icon)
+        ImGui::Text("%s %s", icon, title);
+    else
+        ImGui::Text("%s", title);
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + lineHeight + 5.0f));
+
+    return true;
+}
+
+void RocketRhythm::EndSettingsCard()
+{
+    ImGui::EndGroup();
+    ImGui::PopID();
+    ImGui::Spacing();
+}
+
+void RocketRhythm::RenderColorPicker(const char* label, ImVec4& color)
+{
+    ImGui::Text("%s", label);
+    ImGui::SameLine(130.0f);
+    ImGui::PushItemWidth(90);
+    ImGui::ColorEdit4(label, &color.x, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_AlphaBar);
+    ImGui::PopItemWidth();
+}
+
+void RocketRhythm::RenderGeneralTab()
+{
+    ImGui::Columns(2, "general_columns", false);
+
+    if (BeginSettingsCard("Plugin", "General"))
+    {
+        bool enabledValue = mEnabled ? *mEnabled : true;
+        if (ImGui::Checkbox("Enable Plugin", &enabledValue))
+        {
+            if (mEnabled) *mEnabled = enabledValue;
+            mNeedsWindowOpen = false;
+            mNeedsWindowClose = false;
+        }
+        ImGui::SameLine();
+        DrawHelpMarker("Toggle the entire plugin on/off");
+
+        // Hide when not playing
+        ImGui::Checkbox("Hide When Not Playing", &mHideWhenNotPlaying);
+        ImGui::SameLine();
+        DrawHelpMarker("Automatically hide overlay when no music is playing");
+
+        EndSettingsCard();
+    }
+
+    if (BeginSettingsCard("Scaling", "Scale"))
+    {
+        ImGui::Checkbox("Auto scale", &mWindowStyle.enableAutoScaling);
+        ImGui::SameLine();
+        DrawHelpMarker("Automatically scale UI based on screen resolution and DPI");
+
+        ImGui::PushItemWidth(-1.0f);
+        if (mWindowStyle.enableAutoScaling)
+        {
+            ImGui::SliderFloat("Min", &mWindowStyle.minScale, 0.5f, 1.5f, "%.2f");
+            ImGui::SliderFloat("Max", &mWindowStyle.maxScale, 1.0f, 3.0f, "%.2f");
+        }
+
+        if (ImGui::SliderFloat("UI Scale", &mWindowStyle.uiScale, 0.5f, 2.0f, "%.2f"))
+        {
+            if (mUiScaleCvar) *mUiScaleCvar = mWindowStyle.uiScale;
+        }
+        ImGui::PopItemWidth();
+
+        EndSettingsCard();
+    }
+
+    ImGui::NextColumn();
+
+    if (BeginSettingsCard("Now Playing", "Media"))
+    {
+        ImGui::TextColored(mWindowStyle.textColorDim, "Source");
+        ImGui::SameLine(92.0f);
+        ImGui::Text("%s", mSpotifyEnabled && mSpotify && mSpotify->IsAuthenticated() ? "Spotify" : (mMedia ? "Windows Media" : "Disconnected"));
+
+        ImGui::TextColored(mWindowStyle.textColorDim, "State");
+        ImGui::SameLine(92.0f);
+        if (mMediaState.isPlaying)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.accentColor);
+            ImGui::Text("Playing");
+        }
+        else if (!mMediaState.title.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.7f, 0.3f, 1.0f));
+            ImGui::Text("Paused");
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.textColorDim);
+            ImGui::Text("No Media");
+        }
+        ImGui::PopStyleColor();
+
+        if (!mMediaState.title.empty())
+        {
+            ImGui::TextColored(mWindowStyle.textColorDim, "Track");
+            ImGui::SameLine(92.0f);
+            ImGui::TextWrapped("%s", mMediaState.title.c_str());
+            ImGui::TextColored(mWindowStyle.textColorDim, "Artist");
+            ImGui::SameLine(92.0f);
+            ImGui::TextWrapped("%s", mMediaState.artist.c_str());
+        }
+
+        EndSettingsCard();
+    }
+
+    ImGui::Columns(1);
+}
+
+void RocketRhythm::RenderAppearanceTab()
+{
+    ImGui::Columns(2, "appearance_columns", false);
+
+    if (BeginSettingsCard("Colors", "Color"))
+    {
+        RenderColorPicker("Background", mWindowStyle.backgroundColor);
+        RenderColorPicker("Accent Primary", mWindowStyle.accentColor);
+        RenderColorPicker("Accent Secondary", mWindowStyle.accentColor2);
+        RenderColorPicker("Text", mWindowStyle.textColor);
+        RenderColorPicker("Text Dim", mWindowStyle.textColorDim);
+        RenderColorPicker("Text Faint", mWindowStyle.textColorFaint);
+
+        EndSettingsCard();
+    }
+
+    if (BeginSettingsCard("Time", "Time"))
+    {
+        int mode = static_cast<int>(mWindowStyle.timeDisplayMode);
+        const char* items[] = {"Centered", "Corners"};
+
+        ImGui::PushItemWidth(-1.0f);
+        if (ImGui::Combo("Display", &mode, items, IM_ARRAYSIZE(items)))
+        {
+            mode = std::clamp(mode, 0, 1);
+            mWindowStyle.timeDisplayMode = static_cast<WindowStyle::TimeDisplayMode>(mode);
+        }
+        ImGui::PopItemWidth();
+
+        EndSettingsCard();
+    }
+
+    ImGui::NextColumn();
+
+    if (BeginSettingsCard("Layout", "Display"))
+    {
+        ImGui::Checkbox("Art", &mWindowStyle.showAlbumArt);
+        ImGui::SameLine();
+        ImGui::Checkbox("Progress", &mWindowStyle.showProgressBar);
+        ImGui::SameLine();
+        ImGui::Checkbox("Album", &mWindowStyle.showAlbumInfo);
+
+        ImGui::PushItemWidth(-1.0f);
+        if (mWindowStyle.showAlbumArt)
+        {
+            ImGui::SliderFloat("Art Size", &mWindowStyle.albumArtSize, 80.0f, 150.0f, "%.0f px");
+            ImGui::SliderFloat("Art Round", &mWindowStyle.albumArtRounding, 0.0f, 30.0f, "%.0f px");
+        }
+
+        ImGui::SliderFloat("Window Round", &mWindowStyle.windowRounding, 0.0f, 30.0f, "%.0f px");
+        ImGui::SliderFloat("Opacity", &mWindowStyle.windowOpacity, 0.5f, 1.0f, "%.2f");
+        ImGui::PopItemWidth();
+
+        EndSettingsCard();
+    }
+
+    if (BeginSettingsCard("Motion", "Motion"))
+    {
+        ImGui::Checkbox("Pulse", &mWindowStyle.enablePulse);
+        ImGui::SameLine();
+        DrawHelpMarker("Adds a subtle pulse animation when music is playing");
+
+        ImGui::SameLine();
+        ImGui::Checkbox("Marquee", &mWindowStyle.enableMarquee);
+        ImGui::SameLine();
+        DrawHelpMarker("Scroll long text left-right with pauses");
+
+        ImGui::PushItemWidth(-1.0f);
+        if (mWindowStyle.enableMarquee)
+        {
+            ImGui::SliderFloat("Speed", &mWindowStyle.marqueeSpeedPx, 10.0f, 200.0f, "%.0f px/sec");
+            ImGui::SliderFloat("Wait", &mWindowStyle.marqueeWaitSec, 0.0f, 2.0f, "%.2f sec");
+        }
+        ImGui::PopItemWidth();
+
+        EndSettingsCard();
+    }
+
+    ImGui::Columns(1);
+
+    ImGui::Spacing();
+    float btnWidth = 112;
+    float spacing = 6;
+    float totalWidth = btnWidth * 3.0f + spacing * 2.0f;
+    float startX = (ImGui::GetWindowWidth() - totalWidth) * 0.5f;
+
+    ImGui::SetCursorPosX(startX);
+
+    if (ImGui::Button("Save", ImVec2(btnWidth, 30)))
+    {
+        SaveConfig();
+        notify(Info, "{}: Config Saved!", kPluginNameStr);
+    }
+
+    ImGui::SameLine(0, spacing);
+
+    if (ImGui::Button("Load", ImVec2(btnWidth, 30)))
+    {
+        LoadConfig();
+        notify(Info, "{}: Config Loaded!", kPluginNameStr);
+    }
+
+    ImGui::SameLine(0, spacing);
+
+    if (ImGui::Button("Reset", ImVec2(btnWidth, 30)))
+    {
+        if (mEnabled) *mEnabled = true;
+        mHideWhenNotPlaying = true;
+        mWindowStyle = DefaultWindowStyle();
+        if (mUiScaleCvar) *mUiScaleCvar = mWindowStyle.uiScale;
+        notify(Info, "{}: Settings Reset To Default!", kPluginNameStr);
+    }
+}
+
+void RocketRhythm::RenderSpotifyTab()
+{
+    if (!mSpotify)
+    {
+        if (BeginSettingsCard("Spotify Integration", "Spotify"))
+        {
+            ImGui::TextColored(mWindowStyle.textColorDim, "Spotify integration is initializing...");
+            EndSettingsCard();
+        }
+        return;
+    }
+
+    bool isAuthenticated = mSpotify->IsAuthenticated();
+    ImVec4 spotifyGreen = ImVec4(0.13f, 0.74f, 0.35f, 1.0f);
+
+    ImGui::Columns(isAuthenticated ? 2 : 1, "spotify_columns", false);
+
+    if (BeginSettingsCard(isAuthenticated ? "Connection" : "Spotify Authentication",
+                          isAuthenticated ? "Status" : "Auth", spotifyGreen))
+    {
+        if (ImGui::Checkbox("Use Spotify for overlay data", &mSpotifyEnabled))
+        {
+            if (mSpotifyEnabled)
+                mSpotify->StartPolling();
+            SaveSpotifyConfig();
+        }
+        ImGui::SameLine();
+        DrawHelpMarker("When enabled, Spotify Web API metadata overrides the Windows media session when available.");
+
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Controls", &mShowSpotifyControls))
+        {
+            SaveSpotifyConfig();
+        }
+
+        ImGui::Spacing();
+
+        if (!isAuthenticated)
+        {
+            ImGui::TextColored(mWindowStyle.textColorDim,
+                "Connect Spotify to use Web API metadata and playback controls.");
+
+            ImGui::PushItemWidth(-1.0f);
+            ImGui::InputText("Client ID", &mSpotifyClientIdInput);
+            ImGui::InputText("Client Secret", &mSpotifyClientSecretInput, ImGuiInputTextFlags_Password);
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            DrawHelpMarker("Optional when using Spotify's PKCE flow. If you enter a secret, it is stored locally in the plugin config.");
+
+            const bool authActive = mSpotify->IsAuthFlowActive();
+            const std::string authError = mSpotify->GetLastAuthError();
+            if (authActive)
+            {
+                ImGui::TextColored(mWindowStyle.textColorDim, "Waiting for Spotify authorization in your browser...");
+            }
+
+            if (!authError.empty())
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "%s", authError.c_str());
+            }
+
+            const bool connectDisabled = mSpotifyClientIdInput.empty() || authActive;
+            if (connectDisabled)
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.55f);
+
+            if (ImGui::Button("Connect", ImVec2(112, 30)) && !connectDisabled)
+            {
+                rrspotify::SpotifyAuthConfig config;
+                config.clientId = mSpotifyClientIdInput;
+                config.clientSecret = mSpotifyClientSecretInput;
+                mSpotify->SetAuthConfig(config);
+                SaveSpotifyConfig();
+                mSpotify->StartAuthFlow();
+                notify(Info, "{}: Opening Spotify authorization page...", kPluginNameStr);
+            }
+
+            if (connectDisabled)
+                ImGui::PopStyleVar();
+
+            ImGui::TextColored(mWindowStyle.textColorFaint,
+                "Set your Spotify app redirect URI to http://127.0.0.1:9982/callback.");
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, spotifyGreen);
+            ImGui::Text("Connected to Spotify");
+            ImGui::PopStyleColor();
+
+            rrspotify::SpotifyTrackInfo track = mSpotify->GetCurrentTrack();
+
+            if (!track.title.empty())
+            {
+                ImGui::TextColored(mWindowStyle.textColorDim, "Track");
+                ImGui::SameLine(70.0f);
+                ImGui::Text("%s", track.title.c_str());
+                ImGui::TextColored(mWindowStyle.textColorDim, "Artist");
+                ImGui::SameLine(70.0f);
+                ImGui::TextWrapped("%s", track.artist.c_str());
+                ImGui::TextColored(mWindowStyle.textColorDim, "Album");
+                ImGui::SameLine(70.0f);
+                ImGui::TextWrapped("%s", track.album.c_str());
+
+                if (track.isLiked)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.9f, 0.2f, 0.2f, 1.0f));
+                    if (ImGui::Button("Liked", ImVec2(86, 28)))
+                    {
+                        mSpotify->ToggleLike();
+                    }
+                    ImGui::PopStyleColor();
+                }
+                else
+                {
+                    if (ImGui::Button("Favorite", ImVec2(86, 28)))
+                    {
+                        mSpotify->ToggleLike();
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextColored(mWindowStyle.textColorDim, "No Spotify playback data yet");
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Refresh", ImVec2(86, 28)))
+            {
+                mSpotify->RefreshPlaybackState();
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Disconnect", ImVec2(100, 28)))
+            {
+                mSpotify->Logout();
+                mSpotifyEnabled = false;
+                SaveSpotifyConfig();
+                notify(Info, "{}: Disconnected from Spotify", kPluginNameStr);
+            }
+        }
+
+        EndSettingsCard();
+    }
+
+    if (isAuthenticated && mShowSpotifyControls)
+    {
+        ImGui::NextColumn();
+
+        if (BeginSettingsCard("Playback Controls", "Controls", spotifyGreen))
+        {
+            float btnWidth = 72;
+            float spacing = 6;
+            float totalWidth = btnWidth * 4 + spacing * 3;
+            float startX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
+
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + startX);
+
+            ImGui::PushStyleColor(ImGuiCol_Button, spotifyGreen);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(spotifyGreen.x * 1.1f, spotifyGreen.y * 1.1f, spotifyGreen.z * 1.1f, 1.0f));
+
+            if (ImGui::Button("Prev", ImVec2(btnWidth, 30)))
+            {
+                mSpotify->Previous();
+            }
+
+            ImGui::SameLine(0, spacing);
+
+            if (ImGui::Button("Play", ImVec2(btnWidth, 30)))
+            {
+                mSpotify->Play();
+            }
+
+            ImGui::SameLine(0, spacing);
+
+            if (ImGui::Button("Pause", ImVec2(btnWidth, 30)))
+            {
+                mSpotify->Pause();
+            }
+
+            ImGui::SameLine(0, spacing);
+
+            if (ImGui::Button("Next", ImVec2(btnWidth, 30)))
+            {
+                mSpotify->Next();
+            }
+
+            ImGui::PopStyleColor(2);
+
+            EndSettingsCard();
+        }
+    }
+
+    ImGui::Columns(1);
+}
+
+void RocketRhythm::RenderAboutTab()
+{
+    if (BeginSettingsCard("About RocketRhythm", "Info"))
+    {
+        // Centered logo/name
+        ImGui::PushStyleColor(ImGuiCol_Text, mWindowStyle.accentColor);
+        ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("RocketRhythm").x) * 0.5f);
+        ImGui::Text("RocketRhythm");
+        ImGui::PopStyleColor();
+
+        ImGui::Spacing();
+
+        ImGui::TextColored(mWindowStyle.textColorDim, "A modern music overlay for Rocket League");
+
+        ImGui::Spacing();
+
+        ImGui::Text("Version: %s", plugin_version.c_str());
+        ImGui::Text("Developed by: Mister9982");
+
+        ImGui::Spacing();
+
+        // Links
+        float btnWidth = 140;
+        float spacing = 10;
+        float totalWidth = btnWidth * 2 + spacing;
+        float startX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
+
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + startX);
+
+        if (ImGui::Button("GitHub", ImVec2(btnWidth, 36)))
+        {
+            ShellExecuteA(nullptr, "open", "https://github.com/99Anvar99/RocketRhythm", nullptr, nullptr, SW_SHOWNORMAL);
+        }
+
+        ImGui::SameLine(0, spacing);
+
+        if (ImGui::Button("Website", ImVec2(btnWidth, 36)))
+        {
+            ShellExecuteA(nullptr, "open", "https://rocket-rhythm-website.vercel.app", nullptr, nullptr, SW_SHOWNORMAL);
+        }
+
+        EndSettingsCard();
+    }
+}
+
+// ------------------------------------------------------------
+// Spotify Integration
+// ------------------------------------------------------------
+
+void RocketRhythm::InitializeSpotify()
+{
+    if (!mSpotify)
+    {
+        mSpotify = std::make_unique<rrspotify::SpotifyIntegration>();
+
+        mSpotify->SetOnAuthStateChanged([this](bool authenticated)
+        {
+            if (authenticated)
+            {
+                mSpotifyConfigSavePending.store(true);
+                notify(Info, "{}: Spotify connected", kPluginNameStr);
+            }
+        });
+    }
+}
+
+void RocketRhythm::UpdateFromSpotify()
+{
+    if (!mSpotifyEnabled || !mSpotify)
+        return;
+
+    const rrspotify::SpotifyTrackInfo track = mSpotify->GetCurrentTrack();
+    if (track.title.empty() && track.artist.empty())
+        return;
+
+    MediaState spotifyState;
+    spotifyState.isPlaying = track.isPlaying;
+    spotifyState.title = track.title;
+    spotifyState.artist = track.artist;
+    spotifyState.album = track.album;
+    spotifyState.durationSec = std::max(0, track.durationMs / 1000);
+    spotifyState.positionSec = std::clamp(track.positionMs / 1000, 0, spotifyState.durationSec);
+    spotifyState.progress01 = spotifyState.durationSec > 0
+                                  ? std::clamp(spotifyState.positionSec / static_cast<float>(spotifyState.durationSec),
+                                               0.0f, 1.0f)
+                                  : 0.0f;
+
+    const std::string spotifyAlbumArtPath = GetSpotifyAlbumArtPath(track);
+    if (!spotifyAlbumArtPath.empty())
+    {
+        spotifyState.hasAlbumArt = true;
+        spotifyState.albumArtPath = spotifyAlbumArtPath;
+    }
+
+    const bool sameTrackAsGstmtc =
+        !mMediaState.title.empty() &&
+        mMediaState.title == spotifyState.title &&
+        (mMediaState.artist.empty() || spotifyState.artist.empty() || mMediaState.artist == spotifyState.artist);
+
+    if (!spotifyState.hasAlbumArt && sameTrackAsGstmtc && mMediaState.hasAlbumArt)
+    {
+        spotifyState.hasAlbumArt = true;
+        spotifyState.albumArtPath = mMediaState.albumArtPath;
+    }
+
+    mMediaState = std::move(spotifyState);
+}
+
+void RocketRhythm::SaveSpotifyConfig()
+{
+    if (!mSpotify) return;
+
+    try
+    {
+        const auto path = gameWrapper->GetDataFolder() / kConfigDir / "spotify_config.json";
+        std::filesystem::create_directories(path.parent_path());
+
+        rrspotify::SpotifyAuthConfig config = mSpotify->GetAuthConfig();
+
+        nlohmann::json j;
+        j["spotify_auth"] = config;
+        j["spotify_enabled"] = mSpotifyEnabled;
+        j["show_spotify_controls"] = mShowSpotifyControls;
+
+        const auto tmpPath = path.string() + ".tmp";
+        {
+            std::ofstream file(tmpPath, std::ios::binary | std::ios::trunc);
+            if (!file)
+            {
+                LOG("Error saving Spotify config: could not open file for writing: {}", tmpPath);
+                return;
+            }
+
+            file << j.dump(4);
+            if (!file)
+            {
+                LOG("Error saving Spotify config: write failed: {}", tmpPath);
+                return;
+            }
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(tmpPath, path, ec);
+        if (ec)
+        {
+            std::filesystem::remove(path, ec);
+            ec.clear();
+            std::filesystem::rename(tmpPath, path, ec);
+        }
+
+        if (ec)
+        {
+            LOG("Error saving Spotify config: failed to move temp file into place: {}", ec.message());
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG("Error saving Spotify config: {}", e.what());
+    }
+}
+
+void RocketRhythm::LoadSpotifyConfig()
+{
+    if (!mSpotify) return;
+
+    try
+    {
+        const auto path = gameWrapper->GetDataFolder() / kConfigDir / "spotify_config.json";
+
+        if (!std::filesystem::exists(path))
+        {
+            return;
+        }
+
+        std::ifstream file(path, std::ios::binary);
+        if (!file) return;
+
+        nlohmann::json j;
+        file >> j;
+
+        mSpotifyEnabled = j.value("spotify_enabled", false);
+        mShowSpotifyControls = j.value("show_spotify_controls", true);
+
+        if (j.contains("spotify_auth"))
+        {
+            rrspotify::SpotifyAuthConfig config = j["spotify_auth"].get<rrspotify::SpotifyAuthConfig>();
+            mSpotify->SetAuthConfig(config);
+            mSpotifyClientIdInput = config.clientId;
+            mSpotifyClientSecretInput = config.clientSecret;
+
+            if (config.IsValid() || !config.refreshToken.empty())
+            {
+                mSpotify->StartPolling();
+            }
+        }
+    }
+    catch (const std::exception& e)
+    {
+        LOG("Error loading Spotify config: {}", e.what());
     }
 }

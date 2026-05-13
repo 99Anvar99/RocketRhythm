@@ -49,7 +49,7 @@ RocketRhythm reads your active media session via:
 
 👉 **Windows Global System Media Transport Controls (GSMTC)**
 
-This lets the plugin automatically detect media from most Windows-compatible players (Spotify, browsers, etc.). Spotify API integration is planned for future releases.
+This lets the plugin automatically detect media from most Windows-compatible players (Spotify, browsers, etc.). Optional Spotify Web API integration can also be enabled for richer Spotify metadata and playback controls.
 
 ---
 
@@ -74,6 +74,12 @@ This lets the plugin automatically detect media from most Windows-compatible pla
 - Title / artist / album metadata
 - Play / pause state
 - Smooth progress tracking
+
+## Spotify Web API
+- Optional Spotify account connection
+- Playback controls for Spotify
+- Liked-track toggle
+- Spotify metadata override when enabled
 
 ## 🖼 Album Artwork
 - Automatic album art detection (when available)
@@ -169,6 +175,11 @@ rr_uiscale = 1.0
 RocketRhythm saves config to:
 
 - `BakkesMod/data/RocketRhythm/config.json`
+- `BakkesMod/data/RocketRhythm/spotify_config.json` for Spotify credentials and tokens
+
+To connect Spotify, create an app in the Spotify Developer Dashboard and add this redirect URI:
+
+- `http://127.0.0.1:9982/callback`
 
 If the config version is incompatible, RocketRhythm resets to defaults and regenerates the file automatically.
 

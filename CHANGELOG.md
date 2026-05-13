@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.0] - 2026-05-12
+
+### Added
+- Added optional Spotify Web API integration with account authorization.
+- Added Spotify playback controls for play, pause, previous, and next.
+- Added Spotify liked-track toggling from the settings UI.
+- Added Spotify metadata override support so the overlay can use Spotify track data when enabled.
+- Added Spotify album artwork downloading and local caching when artwork is not already available.
+- Added support for displaying all Spotify artist names instead of only the first artist.
+
+### Improved
+- Redesigned the settings UI with a compact left-sidebar layout and darker content panel.
+- Improved media handling so Spotify artwork downloads in the background without blocking rendering.
+- Improved album art behavior by reusing cached Spotify artwork and falling back to Windows media artwork when available.
+- Improved Spotify authorization to use the configured local redirect URI: `http://127.0.0.1:9982/callback`.
+- Improved settings layout density with tighter controls and fewer tall sections.
+
+### Fixed
+- Fixed an ImGui assertion caused by unsafe settings child-window/card layout.
+- Fixed Spotify API requests with query strings by preserving URL extra info in WinHTTP requests.
+- Fixed Spotify PKCE authorization by sending the required code challenge and handling the local callback.
+- Fixed the About settings page divider and removed the duplicate Support section.
+
 ## [1.5.0] - 2026-03-31
 
 ### Improved
